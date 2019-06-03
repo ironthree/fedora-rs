@@ -1,3 +1,6 @@
+//! This module contains utility functions that serve as the basis for
+//! interacting with fedora (web) services.
+
 use std::collections::HashMap;
 
 use reqwest::Url;
@@ -5,13 +8,22 @@ use reqwest::Url;
 const FEDORA_OPENID_API: &str = "https://id.fedoraproject.org/api/v1/";
 const FEDORA_USER_AGENT: &str = "fedora-rs";
 
+/// The `OpenIDClient` provides a way to authenticate with the OpenID
+/// service that fedora provides, and requires for sending authenticated `POST`
+/// requests to some of its web services.
+#[derive(Debug)]
 pub struct OpenIDClient {
-    pub session: reqwest::Client,
+    session: reqwest::Client,
     login_url: String,
     user_agent: String,
+    authenticated: bool,
 }
 
 impl OpenIDClient {
+    /// This function is *the* way to construct a new `OpenIDClient` instance.
+    /// It automatically sets default values the user agent for requests, and
+    /// for the login URL - based on the default pattern and the supplied base
+    /// URL.
     pub fn new(base_url: String) -> OpenIDClient {
         // base URL ends with a slash by convention, so add it if it isn't there
         let base_url = if base_url.ends_with('/') {
@@ -58,20 +70,33 @@ impl OpenIDClient {
             // base_url,
             login_url,
             user_agent: String::from(FEDORA_USER_AGENT),
+            authenticated: false,
         }
     }
 
+    /// This method allows the user to override the default login URL (computed
+    /// from the base URL). Use this with the builder pattern when constructing
+    /// the `OpenIDClient` instance.
     pub fn login_url(mut self, login_url: String) -> OpenIDClient {
         self.login_url = login_url;
         self
     }
 
+    /// This method allows the user to override the default user agent. Use this
+    /// with the builder pattern when constructing `OpenIDClient` instance.
     pub fn user_agent(mut self, user_agent: String) -> OpenIDClient {
         self.user_agent = user_agent;
         self
     }
 
-    pub fn login(self, username: String, password: String) -> Result<(), String> {
+    /// This method does the hard work of doing the authentication dance by
+    /// querying the OpenID service for the required arguments, traverses
+    /// several redirects, and constructs and sends the resulting authentication
+    /// request to the fedora OpenID endpoint.
+    ///
+    /// It returns `Ok(())` in case the requests worked as intended, and returns
+    /// an `Err(String)` if something went wrong.
+    pub fn login(&mut self, username: String, password: String) -> Result<(), String> {
         let mut url = self.login_url.clone();
         let mut state: HashMap<String, String> = HashMap::new();
 
@@ -133,6 +158,17 @@ impl OpenIDClient {
             }
         };
 
+        self.authenticated = true;
         Ok(())
+    }
+
+    /// This method returns a reference to a `reqwest::Client` instance that
+    /// can be used to send authenticated `POST` requests to a fedora service.
+    pub fn session(&self) -> Result<&reqwest::Client, String> {
+        if self.authenticated {
+            Ok(&self.session)
+        } else {
+            Err(String::from("Not authenticated."))
+        }
     }
 }
