@@ -1,0 +1,17 @@
+[package]
+name = "fedora"
+description = "base library for interacting with fedora services"
+license = "MIT OR Apache-2.0"
+
+version = "0.0.1"
+edition = "2018"
+
+authors = ["Fabio Valentini"]
+readme = "README.md"
+categories = ["api-bindings"]
+keywords = ["fedora", "client", "authentication", "openid"]
+repository = "https://github.com/ironthree/fedora-rs"
+
+
+[dependencies]
+reqwest = "^0.9"
