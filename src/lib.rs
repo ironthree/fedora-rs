@@ -1,44 +1,62 @@
-//! This module contains utility functions that serve as the basis for
+//! This module contains utilities that serve as the basis for
 //! interacting with fedora (web) services.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use reqwest::Url;
 
 const FEDORA_OPENID_API: &str = "https://id.fedoraproject.org/api/v1/";
 const FEDORA_USER_AGENT: &str = "fedora-rs";
 
-/// The `OpenIDClient` provides a way to authenticate with the OpenID
-/// service that fedora provides, and requires for sending authenticated `POST`
-/// requests to some of its web services.
+/// This struct encapsulates all options that are needed to construct the actual
+/// `OpenIDClient` instance.
 #[derive(Debug)]
-pub struct OpenIDClient {
-    session: reqwest::Client,
-    login_url: String,
-    user_agent: String,
-    authenticated: bool,
+pub struct OpenIDClientBuilder {
+    login_url: Url,
+    timeout: Option<Duration>,
+    user_agent: Option<String>,
 }
 
-impl OpenIDClient {
-    /// This function is *the* way to construct a new `OpenIDClient` instance.
-    /// It automatically sets default values the user agent for requests, and
-    /// for the login URL - based on the default pattern and the supplied base
-    /// URL.
-    pub fn new(base_url: String) -> OpenIDClient {
-        // base URL ends with a slash by convention, so add it if it isn't there
-        let base_url = if base_url.ends_with('/') {
-            base_url
-        } else {
-            format!("{}/", base_url)
+impl OpenIDClientBuilder {
+    /// This method is used to create a new `OpenIDClientBuilder` instance.
+    /// Since the login URL is necessary in every case, it has to be supplied
+    /// here.
+    pub fn new(login_url: Url) -> OpenIDClientBuilder {
+        OpenIDClientBuilder {
+            login_url,
+            timeout: None,
+            user_agent: None,
+        }
+    }
+
+    /// This method can be used to override the default request timeout.
+    pub fn timeout(mut self, timeout: Duration) -> OpenIDClientBuilder {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    /// This method can be used to override the default user agent.
+    pub fn user_agent(mut self, user_agent: String) -> OpenIDClientBuilder {
+        self.user_agent = Some(user_agent);
+        self
+    }
+
+    /// This method tries to construct the actual `OpenIDClient` instance with
+    /// the supplied settings.
+    ///
+    /// If everything works as expected, an `Ok(OpenIDClient)` is returned,
+    /// and an explanatory `Err(String)` otherwise.
+    pub fn build(self) -> Result<OpenIDClient, String> {
+        let timeout = match self.timeout {
+            Some(timeout) => timeout,
+            None => Duration::from_secs(60),
         };
 
-        // by default, the login URL is just the base URL plus "/login"
-        let login_url = Url::parse(&base_url)
-            .unwrap()
-            .join("/login")
-            .unwrap()
-            .as_str()
-            .to_owned();
+        let user_agent = match self.user_agent {
+            Some(user_agent) => user_agent,
+            None => String::from(FEDORA_USER_AGENT),
+        };
 
         // set default headers for our requests
         // - User Agent
@@ -58,37 +76,37 @@ impl OpenIDClient {
         // - custom default headers
         // - cookie store enabled
         // - no-redirects policy
-        let session = reqwest::Client::builder()
+        let session = match reqwest::Client::builder()
             .default_headers(headers)
+            .timeout(timeout)
             .cookie_store(true)
             .redirect(reqwest::RedirectPolicy::none())
-            .build()
-            .unwrap();
+            .build() {
+            Ok(session) => session,
+            Err(error) => return Err(format!("Failed to initialise session: {}", error)),
+        };
 
-        OpenIDClient {
+        Ok(OpenIDClient {
             session,
-            // base_url,
-            login_url,
-            user_agent: String::from(FEDORA_USER_AGENT),
+            login_url: self.login_url,
+            user_agent,
             authenticated: false,
-        }
+        })
     }
+}
 
-    /// This method allows the user to override the default login URL (computed
-    /// from the base URL). Use this with the builder pattern when constructing
-    /// the `OpenIDClient` instance.
-    pub fn login_url(mut self, login_url: String) -> OpenIDClient {
-        self.login_url = login_url;
-        self
-    }
+/// The `OpenIDClient` provides a way to authenticate with the OpenID
+/// service that fedora provides - which is required for sending authenticated
+/// requests to some of the fedora web services.
+#[derive(Debug)]
+pub struct OpenIDClient {
+    session: reqwest::Client,
+    login_url: Url,
+    user_agent: String,
+    authenticated: bool,
+}
 
-    /// This method allows the user to override the default user agent. Use this
-    /// with the builder pattern when constructing `OpenIDClient` instance.
-    pub fn user_agent(mut self, user_agent: String) -> OpenIDClient {
-        self.user_agent = user_agent;
-        self
-    }
-
+impl OpenIDClient {
     /// This method does the hard work of doing the authentication dance by
     /// querying the OpenID service for the required arguments, traverses
     /// several redirects, and constructs and sends the resulting authentication
@@ -103,18 +121,17 @@ impl OpenIDClient {
         // ask fedora OpenID system how to authenticate
         // follow redirects until the "final destination" is reached
         loop {
-            let response = match self.session.get(&url).send() {
+            let response = match self.session.get(url.clone()).send() {
                 Ok(response) => response,
                 Err(error) => {
-                    return Err(format!("Failed to contact OpenID provider: {:?}", error))
+                    return Err(format!("Failed to contact OpenID provider: {:?}", error));
                 }
             };
 
             let status = response.status();
 
             // get and keep track of URL query arguments
-            let query = Url::parse(&url).unwrap();
-            let args = query.query_pairs();
+            let args = url.query_pairs();
 
             for (key, value) in args {
                 state.insert(key.to_string(), value.to_string());
@@ -122,13 +139,10 @@ impl OpenIDClient {
 
             if status.is_redirection() {
                 // set next URL to redirect destination
-                url = response
-                    .headers()
-                    .get("location")
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .to_owned();
+                url = match Url::parse(response.headers().get("location").unwrap().to_str().unwrap()) {
+                    Ok(url) => url,
+                    Err(error) => return Err(format!("Failed to parse URL: {}", error)),
+                };
             } else {
                 // final destination reached
                 break;
@@ -162,13 +176,15 @@ impl OpenIDClient {
         Ok(())
     }
 
+    /// This method can be used to determine whether a user has successfully
+    /// authenticated with the fedora OpenID service yet.
+    pub fn authenticated(&self) -> bool {
+        self.authenticated
+    }
+
     /// This method returns a reference to a `reqwest::Client` instance that
-    /// can be used to send authenticated `POST` requests to a fedora service.
-    pub fn session(&self) -> Result<&reqwest::Client, String> {
-        if self.authenticated {
-            Ok(&self.session)
-        } else {
-            Err(String::from("Not authenticated."))
-        }
+    /// can be used to send requests.
+    pub fn session(&self) -> &reqwest::Client {
+        &self.session
     }
 }
