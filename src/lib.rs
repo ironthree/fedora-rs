@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use failure::Fail;
 use reqwest::Url;
 
 const FEDORA_OPENID_API: &str = "https://id.fedoraproject.org/api/v1/";
@@ -18,11 +19,23 @@ pub struct OpenIDClientBuilder {
     user_agent: Option<String>,
 }
 
+#[derive(Debug, Fail)]
+#[fail(display = "Failed to initialize session: {}", error)]
+pub struct BuilderError {
+    error: reqwest::Error,
+}
+
+impl From<reqwest::Error> for BuilderError {
+    fn from(error: reqwest::Error) -> Self {
+        Self { error }
+    }
+}
+
 impl OpenIDClientBuilder {
     /// This method is used to create a new `OpenIDClientBuilder` instance.
     /// Since the login URL is necessary in every case, it has to be supplied
     /// here.
-    pub fn new(login_url: Url) -> OpenIDClientBuilder {
+    pub fn new(login_url: Url) -> Self {
         OpenIDClientBuilder {
             login_url,
             timeout: None,
@@ -31,13 +44,13 @@ impl OpenIDClientBuilder {
     }
 
     /// This method can be used to override the default request timeout.
-    pub fn timeout(mut self, timeout: Duration) -> OpenIDClientBuilder {
+    pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
     /// This method can be used to override the default user agent.
-    pub fn user_agent(mut self, user_agent: String) -> OpenIDClientBuilder {
+    pub fn user_agent(mut self, user_agent: String) -> Self {
         self.user_agent = Some(user_agent);
         self
     }
@@ -47,7 +60,7 @@ impl OpenIDClientBuilder {
     ///
     /// If everything works as expected, an `Ok(OpenIDClient)` is returned,
     /// and an explanatory `Err(String)` otherwise.
-    pub fn build(self) -> Result<OpenIDClient, String> {
+    pub fn build(self) -> Result<OpenIDClient, BuilderError> {
         let timeout = match self.timeout {
             Some(timeout) => timeout,
             None => Duration::from_secs(60),
@@ -76,15 +89,12 @@ impl OpenIDClientBuilder {
         // - custom default headers
         // - cookie store enabled
         // - no-redirects policy
-        let session = match reqwest::Client::builder()
+        let session = reqwest::Client::builder()
             .default_headers(headers)
             .timeout(timeout)
             .cookie_store(true)
             .redirect(reqwest::RedirectPolicy::none())
-            .build() {
-            Ok(session) => session,
-            Err(error) => return Err(format!("Failed to initialise session: {}", error)),
-        };
+            .build()?;
 
         Ok(OpenIDClient {
             session,
@@ -106,6 +116,30 @@ pub struct OpenIDClient {
     authenticated: bool,
 }
 
+#[derive(Debug, Fail)]
+pub enum ClientError {
+    #[fail(display = "Failed to contact OpenID provider: {}", error)]
+    RequestError { error: reqwest::Error },
+    #[fail(display = "Failed to parse redirection URL: {}", error)]
+    UrlParsingError { error: reqwest::UrlError },
+    #[fail(display = "{}", error)]
+    RedirectionError { error: String },
+    #[fail(display = "Failed to authenticate with OpenID service: {}", error)]
+    AuthenticationError { error: reqwest::Error },
+}
+
+impl From<reqwest::Error> for ClientError {
+    fn from(error: reqwest::Error) -> Self {
+        ClientError::RequestError { error }
+    }
+}
+
+impl From<reqwest::UrlError> for ClientError {
+    fn from(error: reqwest::UrlError) -> Self {
+        ClientError::UrlParsingError { error }
+    }
+}
+
 impl OpenIDClient {
     /// This method does the hard work of doing the authentication dance by
     /// querying the OpenID service for the required arguments, traverses
@@ -114,20 +148,14 @@ impl OpenIDClient {
     ///
     /// It returns `Ok(())` in case the requests worked as intended, and returns
     /// an `Err(String)` if something went wrong.
-    pub fn login(&mut self, username: String, password: String) -> Result<(), String> {
+    pub fn login(&mut self, username: String, password: String) -> Result<(), ClientError> {
         let mut url = self.login_url.clone();
         let mut state: HashMap<String, String> = HashMap::new();
 
         // ask fedora OpenID system how to authenticate
         // follow redirects until the "final destination" is reached
         loop {
-            let response = match self.session.get(url.clone()).send() {
-                Ok(response) => response,
-                Err(error) => {
-                    return Err(format!("Failed to contact OpenID provider: {:?}", error));
-                }
-            };
-
+            let response = self.session.get(url.clone()).send()?;
             let status = response.status();
 
             // get and keep track of URL query arguments
@@ -139,10 +167,22 @@ impl OpenIDClient {
 
             if status.is_redirection() {
                 // set next URL to redirect destination
-                url = match Url::parse(response.headers().get("location").unwrap().to_str().unwrap()) {
-                    Ok(url) => url,
-                    Err(error) => return Err(format!("Failed to parse URL: {}", error)),
+                let header: &reqwest::header::HeaderValue = match response
+                    .headers().get("location") {
+                    Some(value) => value,
+                    None => return Err(ClientError::RedirectionError {
+                        error: String::from("No redirect URL provided in HTTP redirect headers.")
+                    }),
                 };
+
+                let string = match header.to_str() {
+                    Ok(string) => string,
+                    Err(_) => return Err(ClientError::RedirectionError {
+                        error: String::from("Failed to decode redirect URL.")
+                    }),
+                };
+
+                url = Url::parse(string)?;
             } else {
                 // final destination reached
                 break;
@@ -167,9 +207,7 @@ impl OpenIDClient {
         // send authentication request
         let mut _response = match self.session.post(FEDORA_OPENID_API).form(&state).send() {
             Ok(response) => response,
-            Err(error) => {
-                return Err(format!("Failed to authenticate: {:#?}", error.status()));
-            }
+            Err(error) => return Err(ClientError::AuthenticationError { error }),
         };
 
         self.authenticated = true;

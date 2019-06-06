@@ -6,20 +6,25 @@
 [![docs.rs](https://docs.rs/fedora/badge.svg)](https://docs.rs/fedora/)
 
 This package provides a base library for interacting with fedora web services.
-It is intended to provide functionality similar to the [`fedora`][fedora.py] python package, but for rust.
+It is intended to provide functionality similar to the [`fedora`][fedora.py]
+python package, but for rust.
 
 [fedora.py]: https://github.com/fedora-infra/python-fedora
 
-Right now, the only dependency is [`reqwest`][reqwest].
+Right now, the dependencies of this crate are [`reqwest`][reqwest] and
+[`failure`][failure].
 
-[reqwest]: https://github.com/seanmonstar/reqwest
+[reqwest]: https://docs.rs/reqwest
+[failure]: https://docs.rs/failure
+
+
+**NOTE**: The API is not finalized yet, and minor changes will still happen
+before the `0.1.0` release.
 
 
 ## DONE
 
-Note that the API is not finalized yet, and minor changes will still happen before the `0.1.0` release.
-
-- OpenID authentication should work
+- OpenID authentication
 
 
 ## TODO
