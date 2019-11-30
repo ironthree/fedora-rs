@@ -24,7 +24,7 @@ before the `0.1.0` release.
 
 ## DONE
 
-- OpenID authentication
+- OpenID authentication (may not work yet)
 
 
 ## TODO

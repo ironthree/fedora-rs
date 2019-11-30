@@ -7,6 +7,7 @@ use reqwest::Url;
 use crate::FEDORA_USER_AGENT;
 
 const FEDORA_OPENID_API: &str = "https://id.fedoraproject.org/api/v1/";
+const FEDORA_OPENID_STG_API: &str = "https://id.fedoraproject.org/api/v1/";
 
 /// This struct encapsulates all options that are needed to construct the actual
 /// `OpenIDClient` instance.
@@ -30,10 +31,50 @@ impl From<reqwest::Error> for BuilderError {
 }
 
 impl OpenIDClientBuilder {
-    /// This method is used to create a new `OpenIDClientBuilder` instance.
-    /// Since the login URL is necessary in every case, it has to be supplied
-    /// here.
-    pub fn new(login_url: Url) -> Self {
+    /// This method creates an `OpenIDClientBuilder` with default options
+    /// (default timeout, default user agent, default login URL for fedora),
+    /// where timeout and user agent can optionally be overridden.
+    ///
+    /// ```
+    /// let builder = fedora::OpenIDClientBuilder::default()
+    ///     .timeout(std::time::Duration::from_secs(10))
+    ///     .user_agent(String::from("fedora-rs"));
+    /// ```
+    pub fn default() -> Self {
+        OpenIDClientBuilder {
+            login_url: Url::parse(FEDORA_OPENID_API).unwrap(),
+            timeout: None,
+            user_agent: None,
+        }
+    }
+
+    /// This method creates an `OpenIDClientBuilder` with detault options for
+    /// staging instances of fedora (with default timeout, default user agent),
+    /// where timeout and user agent can optionally be overridden.
+    ///
+    /// ```
+    /// let builder = fedora::OpenIDClientBuilder::staging()
+    ///     .timeout(std::time::Duration::from_secs(10))
+    ///     .user_agent(String::from("fedora-rs"));
+    /// ```
+    pub fn staging() -> Self {
+        OpenIDClientBuilder {
+            login_url: Url::parse(FEDORA_OPENID_STG_API).unwrap(),
+            timeout: None,
+            user_agent: None,
+        }
+    }
+
+    /// This method can be used to create an OpenID client with a custom
+    /// authentication endpoint URL.
+    ///
+    /// ```
+    /// let builder = fedora::OpenIDClientBuilder::custom(
+    ///     reqwest::Url::parse("https://id.fedoraproject.org/api/v1/").unwrap())
+    ///     .timeout(std::time::Duration::from_secs(10))
+    ///     .user_agent(String::from("fedora-rs"));
+    /// ```
+    pub fn custom(login_url: Url) -> Self {
         OpenIDClientBuilder {
             login_url,
             timeout: None,
@@ -41,13 +82,15 @@ impl OpenIDClientBuilder {
         }
     }
 
-    /// This method can be used to override the default request timeout.
+    /// This method can be used to override the default request timeout
+    /// (60 seconds).
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
-    /// This method can be used to override the default user agent.
+    /// This method can be used to override the default user agent
+    /// (as defined in `FEDORA_USER_AGENT`).
     pub fn user_agent(mut self, user_agent: String) -> Self {
         self.user_agent = Some(user_agent);
         self
