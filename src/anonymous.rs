@@ -6,6 +6,7 @@ use reqwest::Client;
 use crate::Session;
 use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
 
+/// This error is returned if the initialization of a `reqwest` session fails.
 #[derive(Debug, Fail)]
 #[fail(display = "Failed to initialize session: {}", error)]
 pub struct InitialisationError {
@@ -18,6 +19,15 @@ impl From<reqwest::Error> for InitialisationError {
     }
 }
 
+/// Use this builder to construct a custom anonymous session that implements the
+/// same `Session` trait as the `OpenIDSession`.
+///
+/// ```
+/// let session = fedora::AnonymousSessionBuilder::new()
+///     .timeout(std::time::Duration::from_secs(120))
+///     .user_agent(String::from("rustdoc"))
+///     .build().unwrap();
+/// ```
 #[derive(Debug, Default)]
 pub struct AnonymousSessionBuilder {
     timeout: Option<Duration>,
@@ -25,6 +35,7 @@ pub struct AnonymousSessionBuilder {
 }
 
 impl AnonymousSessionBuilder {
+    /// This method creates a new builder.
     pub fn new() -> Self {
         AnonymousSessionBuilder {
             timeout: None,
@@ -32,16 +43,19 @@ impl AnonymousSessionBuilder {
         }
     }
 
+    /// This method can be used to override the default request timeout.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
+    /// This method can be used to override the default request user agent.
     pub fn user_agent(mut self, user_agent: String) -> Self {
         self.user_agent = Some(user_agent);
         self
     }
 
+    /// This method consumes the builder and attempts to build the session.
     pub fn build(self) -> Result<AnonymousSession, InitialisationError> {
         let timeout = match self.timeout {
             Some(timeout) => timeout,
@@ -81,6 +95,9 @@ impl AnonymousSessionBuilder {
     }
 }
 
+/// An anonymous session with slightly custom settings, and implementing the
+/// same `Session` Trait as the `OpenIDSession`. It currently only wraps a
+/// `reqwest::Client`.
 #[derive(Debug)]
 pub struct AnonymousSession {
     client: Client,

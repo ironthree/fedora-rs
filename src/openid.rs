@@ -10,26 +10,42 @@ use serde::Deserialize;
 use crate::session::Session;
 use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
 
+/// This is the OpenID authentication endpoint for "production" instances of
+/// fedora services.
 const FEDORA_OPENID_API: &str = "https://id.fedoraproject.org/api/v1/";
-const FEDORA_OPENID_STG_API: &str = "https://id.fedoraproject.org/api/v1/";
 
+/// This is the OpenID authentication endpoint for "staging" instances of
+/// fedora services.
+const FEDORA_OPENID_STG_API: &str = "https://id.stg.fedoraproject.org/api/v1/";
+
+/// This collection of errors is returned for various failure modes when setting
+/// up a session authenticated via OpenID.
 #[derive(Debug, Fail)]
 pub enum OpenIDClientError {
+    /// This error is returned for networking-related issues.
     #[fail(display = "Failed to contact OpenID provider: {}", error)]
     RequestError { error: reqwest::Error },
+    /// This error is returned when an input URL was invalid.
     #[fail(display = "Failed to parse redirection URL: {}", error)]
     UrlParsingError { error: reqwest::UrlError },
+    /// This error is returned if a HTTP redirect was invalid.
     #[fail(display = "{}", error)]
     RedirectionError { error: String },
+    /// This error is returned for authentication-related issues.
     #[fail(display = "Failed to authenticate with OpenID service: {}", error)]
     AuthenticationError { error: reqwest::Error },
+    /// This error is returned when the JSON response from the OpenID endpoint
+    /// was not in the standard format, or was missing expected values.
     #[fail(
         display = "Failed to deserialize JSON returned by OpenID endpoint: {}",
         error
     )]
     DeserializationError { error: serde_json::error::Error },
+    /// This error is returned for various authentication flow issues.
     #[fail(display = "Failed to complete OpenID authentication flow: {}", error)]
     AuthenticationFlowError { error: String },
+    /// This error is returned when an error occurs during authentication,
+    /// primarily due to wrong combinations of username and password.
     #[fail(display = "Authentication failed, possibly due to wrong username / password.")]
     LoginError,
 }
@@ -52,12 +68,16 @@ impl From<serde_json::error::Error> for OpenIDClientError {
     }
 }
 
+/// This struct represents an OpenID endpoint's response after a successful
+/// authentication request.
 #[derive(Debug, Deserialize)]
 struct OpenIDResponse {
     success: bool,
     response: HashMap<String, String>,
 }
 
+/// This struct contains the concrete OpenID parameters. They are currently
+/// unused.
 #[derive(Debug, Deserialize)]
 struct OpenIDParameters {
     #[serde(rename(deserialize = "openid.ns.sreg"))]
@@ -96,6 +116,23 @@ struct OpenIDParameters {
     openid_identity: String,
 }
 
+/// Use this builder to construct a custom session authenticated via OpenID.
+/// It implements the `Session` trait, like `AnonymousSession`.
+///
+/// ```
+/// # use reqwest::Url;
+/// # use std::time::Duration;
+///
+/// let builder = fedora::OpenIDSessionBuilder::default(
+///     Url::parse("https://bodhi.fedoraproject.org/login").unwrap(),
+///     String::from("fedorauser"),
+///     String::from("password12")
+/// ).timeout(
+///     Duration::from_secs(120)
+/// ).user_agent(
+///     String::from("rustdoc")
+/// );
+/// ```
 #[derive(Debug)]
 pub struct OpenIDSessionBuilder {
     auth_url: Url,
@@ -107,6 +144,8 @@ pub struct OpenIDSessionBuilder {
 }
 
 impl OpenIDSessionBuilder {
+    /// This method creates a new builder for the "production" instances
+    /// of the fedora services.
     pub fn default(login_url: Url, username: String, password: String) -> Self {
         OpenIDSessionBuilder {
             auth_url: Url::parse(FEDORA_OPENID_API).unwrap(),
@@ -118,6 +157,8 @@ impl OpenIDSessionBuilder {
         }
     }
 
+    /// This method creates a new builder for the "staging" instances
+    /// of the fedora services.
     pub fn staging(login_url: Url, username: String, password: String) -> Self {
         OpenIDSessionBuilder {
             auth_url: Url::parse(FEDORA_OPENID_STG_API).unwrap(),
@@ -129,6 +170,8 @@ impl OpenIDSessionBuilder {
         }
     }
 
+    /// This method creates a custom builder, where both authentication endpoint
+    /// and login URL need to be specified manually.
     pub fn custom(auth_url: Url, login_url: Url, username: String, password: String) -> Self {
         OpenIDSessionBuilder {
             auth_url,
@@ -140,16 +183,21 @@ impl OpenIDSessionBuilder {
         }
     }
 
+    /// This method can be used to override the default request timeout.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
+    /// This method can be used to override the default request user agent.
     pub fn user_agent(mut self, user_agent: String) -> Self {
         self.user_agent = Some(user_agent);
         self
     }
 
+    /// This method consumes the builder and attempts to build the session,
+    /// complete the authentication workflow, and return a session with
+    /// all the necessary cookies and headers included.
     pub fn build(self) -> Result<OpenIDSession, OpenIDClientError> {
         let timeout = match self.timeout {
             Some(timeout) => timeout,
@@ -335,6 +383,9 @@ impl OpenIDSessionBuilder {
     }
 }
 
+/// An session that contains cookies obtained by successfully authenticating
+/// via OpenID, which implements the `Session` trait, just like the
+/// `AnonymousSession`. It currently only wraps a `reqwest::Client`.
 #[derive(Debug)]
 pub struct OpenIDSession {
     client: Client,
