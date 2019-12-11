@@ -3,7 +3,7 @@ name = "fedora"
 description = "base library for interacting with fedora services"
 license = "MIT OR Apache-2.0"
 
-version = "0.0.6"
+version = "0.0.7"
 edition = "2018"
 
 authors = ["Fabio Valentini <decathorpe@gmail.com>"]
