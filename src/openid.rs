@@ -1,110 +1,159 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use cookie::CookieJar;
 use failure::Fail;
-use reqwest::Url;
+use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::{Client, Url};
+use serde::Deserialize;
 
-use crate::FEDORA_USER_AGENT;
+use crate::session::Session;
+use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
 
 const FEDORA_OPENID_API: &str = "https://id.fedoraproject.org/api/v1/";
 const FEDORA_OPENID_STG_API: &str = "https://id.fedoraproject.org/api/v1/";
 
-/// This struct encapsulates all options that are needed to construct the actual
-/// `OpenIDClient` instance.
+#[derive(Debug, Fail)]
+pub enum OpenIDClientError {
+    #[fail(display = "Failed to contact OpenID provider: {}", error)]
+    RequestError { error: reqwest::Error },
+    #[fail(display = "Failed to parse redirection URL: {}", error)]
+    UrlParsingError { error: reqwest::UrlError },
+    #[fail(display = "{}", error)]
+    RedirectionError { error: String },
+    #[fail(display = "Failed to authenticate with OpenID service: {}", error)]
+    AuthenticationError { error: reqwest::Error },
+    #[fail(
+        display = "Failed to deserialize JSON returned by OpenID endpoint: {}",
+        error
+    )]
+    DeserializationError { error: serde_json::error::Error },
+    #[fail(display = "Failed to complete OpenID authentication flow: {}", error)]
+    AuthenticationFlowError { error: String },
+    #[fail(display = "Authentication failed, possibly due to wrong username / password.")]
+    LoginError,
+}
+
+impl From<reqwest::Error> for OpenIDClientError {
+    fn from(error: reqwest::Error) -> Self {
+        OpenIDClientError::RequestError { error }
+    }
+}
+
+impl From<reqwest::UrlError> for OpenIDClientError {
+    fn from(error: reqwest::UrlError) -> Self {
+        OpenIDClientError::UrlParsingError { error }
+    }
+}
+
+impl From<serde_json::error::Error> for OpenIDClientError {
+    fn from(error: serde_json::error::Error) -> Self {
+        OpenIDClientError::DeserializationError { error }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenIDResponse {
+    success: bool,
+    response: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenIDParameters {
+    #[serde(rename(deserialize = "openid.ns.sreg"))]
+    openid_ns_sreg: String,
+    #[serde(rename(deserialize = "openid.mode"))]
+    openid_mode: String,
+    #[serde(rename(deserialize = "openid.sreg.nickname"))]
+    openid_sreg_nickname: String,
+    #[serde(rename(deserialize = "openid.claimed_id"))]
+    openid_claimed_id: String,
+    #[serde(rename(deserialize = "openid.sig"))]
+    openid_sig: String,
+    #[serde(rename(deserialize = "openid.return_to"))]
+    openid_return_to: String,
+    #[serde(rename(deserialize = "openid.signed"))]
+    openid_signed: String,
+    #[serde(rename(deserialize = "openid.cla.signed_cla"))]
+    openid_cla_signed_cla: String,
+    #[serde(rename(deserialize = "openid.assoc_handle"))]
+    openid_assoc_handle: String,
+    #[serde(rename(deserialize = "openid.sreg.email"))]
+    openid_sreg_email: String,
+    #[serde(rename(deserialize = "openid.ns"))]
+    openid_ns: String,
+    #[serde(rename(deserialize = "openid.lp.is_member"))]
+    openid_lp_is_member: String,
+    #[serde(rename(deserialize = "openid.ns.cla"))]
+    openid_ns_cla: String,
+    #[serde(rename(deserialize = "openid.response_nonce"))]
+    openid_response_nonce: String,
+    #[serde(rename(deserialize = "openid.op_endpoint"))]
+    openid_op_endpoint: String,
+    #[serde(rename(deserialize = "openid.ns.lp"))]
+    openid_ns_lp: String,
+    #[serde(rename(deserialize = "openid.identity"))]
+    openid_identity: String,
+}
+
 #[derive(Debug)]
-pub struct OpenIDClientBuilder {
+pub struct OpenIDSessionBuilder {
+    auth_url: Url,
     login_url: Url,
+    username: String,
+    password: String,
     timeout: Option<Duration>,
     user_agent: Option<String>,
 }
 
-#[derive(Debug, Fail)]
-#[fail(display = "Failed to initialize session: {}", error)]
-pub struct BuilderError {
-    error: reqwest::Error,
-}
-
-impl From<reqwest::Error> for BuilderError {
-    fn from(error: reqwest::Error) -> Self {
-        Self { error }
-    }
-}
-
-impl OpenIDClientBuilder {
-    /// This method creates an `OpenIDClientBuilder` with default options
-    /// (default timeout, default user agent, default login URL for fedora),
-    /// where timeout and user agent can optionally be overridden.
-    ///
-    /// ```
-    /// let builder = fedora::OpenIDClientBuilder::default()
-    ///     .timeout(std::time::Duration::from_secs(10))
-    ///     .user_agent(String::from("fedora-rs"));
-    /// ```
-    pub fn default() -> Self {
-        OpenIDClientBuilder {
-            login_url: Url::parse(FEDORA_OPENID_API).unwrap(),
-            timeout: None,
-            user_agent: None,
-        }
-    }
-
-    /// This method creates an `OpenIDClientBuilder` with detault options for
-    /// staging instances of fedora (with default timeout, default user agent),
-    /// where timeout and user agent can optionally be overridden.
-    ///
-    /// ```
-    /// let builder = fedora::OpenIDClientBuilder::staging()
-    ///     .timeout(std::time::Duration::from_secs(10))
-    ///     .user_agent(String::from("fedora-rs"));
-    /// ```
-    pub fn staging() -> Self {
-        OpenIDClientBuilder {
-            login_url: Url::parse(FEDORA_OPENID_STG_API).unwrap(),
-            timeout: None,
-            user_agent: None,
-        }
-    }
-
-    /// This method can be used to create an OpenID client with a custom
-    /// authentication endpoint URL.
-    ///
-    /// ```
-    /// let builder = fedora::OpenIDClientBuilder::custom(
-    ///     reqwest::Url::parse("https://id.fedoraproject.org/api/v1/").unwrap())
-    ///     .timeout(std::time::Duration::from_secs(10))
-    ///     .user_agent(String::from("fedora-rs"));
-    /// ```
-    pub fn custom(login_url: Url) -> Self {
-        OpenIDClientBuilder {
+impl OpenIDSessionBuilder {
+    pub fn default(login_url: Url, username: String, password: String) -> Self {
+        OpenIDSessionBuilder {
+            auth_url: Url::parse(FEDORA_OPENID_API).unwrap(),
             login_url,
+            username,
+            password,
             timeout: None,
             user_agent: None,
         }
     }
 
-    /// This method can be used to override the default request timeout
-    /// (60 seconds).
+    pub fn staging(login_url: Url, username: String, password: String) -> Self {
+        OpenIDSessionBuilder {
+            auth_url: Url::parse(FEDORA_OPENID_STG_API).unwrap(),
+            login_url,
+            username,
+            password,
+            timeout: None,
+            user_agent: None,
+        }
+    }
+
+    pub fn custom(auth_url: Url, login_url: Url, username: String, password: String) -> Self {
+        OpenIDSessionBuilder {
+            auth_url,
+            login_url,
+            username,
+            password,
+            timeout: None,
+            user_agent: None,
+        }
+    }
+
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
-    /// This method can be used to override the default user agent
-    /// (as defined in `FEDORA_USER_AGENT`).
     pub fn user_agent(mut self, user_agent: String) -> Self {
         self.user_agent = Some(user_agent);
         self
     }
 
-    /// This method tries to construct the actual `OpenIDClient` instance with
-    /// the supplied settings.
-    ///
-    /// If everything works as expected, an `Ok(OpenIDClient)` is returned,
-    /// and an explanatory `Err(String)` otherwise.
-    pub fn build(self) -> Result<OpenIDClient, BuilderError> {
+    pub fn build(self) -> Result<OpenIDSession, OpenIDClientError> {
         let timeout = match self.timeout {
             Some(timeout) => timeout,
-            None => Duration::from_secs(60),
+            None => DEFAULT_TIMEOUT,
         };
 
         let user_agent = match self.user_agent {
@@ -115,89 +164,42 @@ impl OpenIDClientBuilder {
         // set default headers for our requests
         // - User Agent
         // - Accept: application/json
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
+        let mut default_headers = HeaderMap::new();
+
+        default_headers.append(
             reqwest::header::USER_AGENT,
-            reqwest::header::HeaderValue::from_str(FEDORA_USER_AGENT).unwrap(),
+            HeaderValue::from_str(&user_agent).unwrap(),
         );
 
-        headers.insert(
+        default_headers.append(
             reqwest::header::ACCEPT,
-            reqwest::header::HeaderValue::from_str("application/json").unwrap(),
+            HeaderValue::from_str("application/json").unwrap(),
         );
 
-        // construct reqwest session with:
+        // construct reqwest session for authentication with:
         // - custom default headers
-        // - cookie store enabled
         // - no-redirects policy
-        let session = reqwest::Client::builder()
-            .default_headers(headers)
+        let client = reqwest::Client::builder()
+            .default_headers(default_headers)
             .timeout(timeout)
-            .cookie_store(true)
             .redirect(reqwest::RedirectPolicy::none())
             .build()?;
 
-        Ok(OpenIDClient {
-            session,
-            login_url: self.login_url,
-            user_agent,
-            authenticated: false,
-        })
-    }
-}
-
-/// The `OpenIDClient` provides a way to authenticate with the OpenID
-/// service that fedora provides - which is required for sending authenticated
-/// requests to some of the fedora web services.
-#[derive(Debug)]
-pub struct OpenIDClient {
-    session: reqwest::Client,
-    login_url: Url,
-    user_agent: String,
-    authenticated: bool,
-}
-
-#[derive(Debug, Fail)]
-pub enum ClientError {
-    #[fail(display = "Failed to contact OpenID provider: {}", error)]
-    RequestError { error: reqwest::Error },
-    #[fail(display = "Failed to parse redirection URL: {}", error)]
-    UrlParsingError { error: reqwest::UrlError },
-    #[fail(display = "{}", error)]
-    RedirectionError { error: String },
-    #[fail(display = "Failed to authenticate with OpenID service: {}", error)]
-    AuthenticationError { error: reqwest::Error },
-}
-
-impl From<reqwest::Error> for ClientError {
-    fn from(error: reqwest::Error) -> Self {
-        ClientError::RequestError { error }
-    }
-}
-
-impl From<reqwest::UrlError> for ClientError {
-    fn from(error: reqwest::UrlError) -> Self {
-        ClientError::UrlParsingError { error }
-    }
-}
-
-impl OpenIDClient {
-    /// This method does the hard work of doing the authentication dance by
-    /// querying the OpenID service for the required arguments, traverses
-    /// several redirects, and constructs and sends the resulting authentication
-    /// request to the fedora OpenID endpoint.
-    ///
-    /// It returns `Ok(())` in case the requests worked as intended, and returns
-    /// an `Err(String)` if something went wrong.
-    pub fn login(&mut self, username: String, password: String) -> Result<(), ClientError> {
+        // log in
         let mut url = self.login_url.clone();
+        let mut cookies = CookieJar::new();
+        let mut headers = HeaderMap::new();
         let mut state: HashMap<String, String> = HashMap::new();
 
         // ask fedora OpenID system how to authenticate
-        // follow redirects until the "final destination" is reached
+        // follow redirects until the login form is reached to collect all parameters
         loop {
-            let response = self.session.get(url.clone()).send()?;
+            #[cfg(feature = "debug")] { dbg!(&headers); }
+
+            let response = client.get(url.clone()).headers(headers.clone()).send()?;
             let status = response.status();
+
+            #[cfg(feature = "debug")] { dbg!(&response); }
 
             // get and keep track of URL query arguments
             let args = url.query_pairs();
@@ -206,33 +208,49 @@ impl OpenIDClient {
                 state.insert(key.to_string(), value.to_string());
             }
 
+            for cookie in response.cookies() {
+                let new = cookie::Cookie::new(cookie.name().to_owned(), cookie.value().to_owned());
+
+                headers.append(
+                    reqwest::header::COOKIE,
+                    HeaderValue::from_str(&new.to_string()).unwrap(),
+                );
+
+                cookies.add(new);
+            }
+
             if status.is_redirection() {
                 // set next URL to redirect destination
-                let header: &reqwest::header::HeaderValue = match response
-                    .headers().get("location") {
+                let header: &reqwest::header::HeaderValue = match response.headers().get("location")
+                {
                     Some(value) => value,
-                    None => return Err(ClientError::RedirectionError {
-                        error: String::from("No redirect URL provided in HTTP redirect headers.")
-                    }),
+                    None => {
+                        return Err(OpenIDClientError::RedirectionError {
+                            error: String::from(
+                                "No redirect URL provided in HTTP redirect headers.",
+                            ),
+                        });
+                    }
                 };
 
                 let string = match header.to_str() {
                     Ok(string) => string,
-                    Err(_) => return Err(ClientError::RedirectionError {
-                        error: String::from("Failed to decode redirect URL.")
-                    }),
+                    Err(_) => {
+                        return Err(OpenIDClientError::RedirectionError {
+                            error: String::from("Failed to decode redirect URL."),
+                        });
+                    }
                 };
 
                 url = Url::parse(string)?;
             } else {
-                // final destination reached
                 break;
             }
         }
 
         // insert username and password into the state / query
-        state.insert(String::from("username"), username);
-        state.insert(String::from("password"), password);
+        state.insert(String::from("username"), self.username);
+        state.insert(String::from("password"), self.password);
 
         // insert additional query arguments into the state / query
         state.insert(
@@ -242,29 +260,90 @@ impl OpenIDClient {
 
         state.insert(String::from("auth_flow"), String::from("fedora"));
 
-        if !state.contains_key("openid.mode") {
-            state.insert(String::from("openid.mode"), String::from("checkid_setup"));
-        }
+        #[allow(clippy::or_fun_call)]
+        state
+            .entry(String::from("openid.mode"))
+            .or_insert(String::from("checkid_setup"));
+
+        #[cfg(feature = "debug")] { dbg!(&headers); }
 
         // send authentication request
-        let mut _response = match self.session.post(FEDORA_OPENID_API).form(&state).send() {
+        let mut response = match client
+            .post(self.auth_url)
+            .form(&state)
+            .headers(headers.clone())
+            .send()
+        {
             Ok(response) => response,
-            Err(error) => return Err(ClientError::AuthenticationError { error }),
+            Err(error) => return Err(OpenIDClientError::AuthenticationError { error }),
         };
 
-        self.authenticated = true;
-        Ok(())
-    }
+        #[cfg(feature = "debug")] { dbg!(&response); }
 
-    /// This method can be used to determine whether a user has successfully
-    /// authenticated with the fedora OpenID service yet.
-    pub fn authenticated(&self) -> bool {
-        self.authenticated
-    }
+        for cookie in response.cookies() {
+            let new = cookie::Cookie::new(cookie.name().to_owned(), cookie.value().to_owned());
 
-    /// This method returns a reference to a `reqwest::Client` instance that
-    /// can be used to send requests.
-    pub fn session(&self) -> &reqwest::Client {
-        &self.session
+            headers.append(
+                reqwest::header::COOKIE,
+                HeaderValue::from_str(&new.to_string()).unwrap(),
+            );
+
+            cookies.add(new);
+        }
+
+        let string = response.text()?;
+
+        // the only indication that authenticating failed is a non-JSON response
+        let openid_auth: OpenIDResponse = match serde_json::from_str(&string) {
+            Ok(value) => value,
+            Err(_) => {
+                return Err(OpenIDClientError::LoginError);
+            }
+        };
+
+        if !openid_auth.success {
+            return Err(OpenIDClientError::AuthenticationFlowError {
+                error: String::from("OpenID endpoint returned an error code."),
+            });
+        }
+
+        // construct a new, clean session with all the necessary cookies
+        let mut default_headers = HeaderMap::new();
+
+        default_headers.append(
+            reqwest::header::USER_AGENT,
+            HeaderValue::from_str(&user_agent).unwrap(),
+        );
+
+        default_headers.append(
+            reqwest::header::ACCEPT,
+            HeaderValue::from_str("application/json").unwrap(),
+        );
+
+        for (header_name, header_value) in headers.into_iter() {
+            if let Some(header_name) = header_name {
+                default_headers.append(header_name, header_value);
+            }
+        }
+
+        let client = reqwest::Client::builder()
+            .default_headers(default_headers)
+            .timeout(timeout)
+            .build()?;
+
+        Ok(OpenIDSession { client })
+    }
+}
+
+#[derive(Debug)]
+pub struct OpenIDSession {
+    client: Client,
+}
+
+impl OpenIDSession {}
+
+impl Session for OpenIDSession {
+    fn session(&self) -> &Client {
+        &self.client
     }
 }
