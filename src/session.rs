@@ -1,4 +1,4 @@
-use reqwest::Client;
+use reqwest::blocking::Client;
 
 /// This trait is used to mark both `AnonymousSession` and `OpenIDSession`, so
 /// they can be used interchangeably.

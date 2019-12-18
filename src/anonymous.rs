@@ -1,7 +1,9 @@
 use std::time::Duration;
 
 use failure::Fail;
-use reqwest::Client;
+use reqwest::RedirectPolicy;
+use reqwest::blocking::Client;
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
 
 use crate::Session;
 use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
@@ -70,25 +72,26 @@ impl AnonymousSessionBuilder {
         // set default headers for our requests
         // - User Agent
         // - Accept: application/json
-        let mut headers = reqwest::header::HeaderMap::new();
+        let mut headers = HeaderMap::new();
 
         headers.insert(
-            reqwest::header::USER_AGENT,
-            reqwest::header::HeaderValue::from_str(&user_agent).unwrap(),
+            USER_AGENT,
+            HeaderValue::from_str(&user_agent).unwrap(),
         );
 
         headers.insert(
-            reqwest::header::ACCEPT,
-            reqwest::header::HeaderValue::from_str("application/json").unwrap(),
+            ACCEPT,
+            HeaderValue::from_str("application/json").unwrap(),
         );
 
         // construct reqwest session with:
         // - custom default headers
         // - no-redirects policy
-        let client = reqwest::Client::builder()
+        let client = Client::builder()
             .default_headers(headers)
+            .cookie_store(true)
             .timeout(timeout)
-            .redirect(reqwest::RedirectPolicy::none())
+            .redirect(RedirectPolicy::none())
             .build()?;
 
         Ok(AnonymousSession { client })
@@ -97,7 +100,7 @@ impl AnonymousSessionBuilder {
 
 /// An anonymous session with slightly custom settings, and implementing the
 /// same `Session` Trait as the `OpenIDSession`. It currently only wraps a
-/// `reqwest::Client`.
+/// `reqwest::blocking::Client`.
 #[derive(Debug)]
 pub struct AnonymousSession {
     client: Client,

@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use cookie::CookieJar;
 use failure::Fail;
-use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{Client, Url};
+use reqwest::RedirectPolicy;
+use reqwest::blocking::Client;
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
 use serde::Deserialize;
+use url::Url;
 
 use crate::session::Session;
 use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
@@ -27,7 +28,7 @@ pub enum OpenIDClientError {
     RequestError { error: reqwest::Error },
     /// This error is returned when an input URL was invalid.
     #[fail(display = "Failed to parse redirection URL: {}", error)]
-    UrlParsingError { error: reqwest::UrlError },
+    UrlParsingError { error: url::ParseError },
     /// This error is returned if a HTTP redirect was invalid.
     #[fail(display = "{}", error)]
     RedirectionError { error: String },
@@ -56,8 +57,8 @@ impl From<reqwest::Error> for OpenIDClientError {
     }
 }
 
-impl From<reqwest::UrlError> for OpenIDClientError {
-    fn from(error: reqwest::UrlError) -> Self {
+impl From<url::ParseError> for OpenIDClientError {
+    fn from(error: url::ParseError) -> Self {
         OpenIDClientError::UrlParsingError { error }
     }
 }
@@ -120,7 +121,7 @@ struct OpenIDParameters {
 /// It implements the `Session` trait, like `AnonymousSession`.
 ///
 /// ```
-/// # use reqwest::Url;
+/// # use url::Url;
 /// # use std::time::Duration;
 ///
 /// let builder = fedora::OpenIDSessionBuilder::default(
@@ -132,6 +133,8 @@ struct OpenIDParameters {
 /// ).user_agent(
 ///     String::from("rustdoc")
 /// );
+///
+/// // let session = builder.build()?;
 /// ```
 #[derive(Debug)]
 pub struct OpenIDSessionBuilder {
@@ -215,39 +218,39 @@ impl OpenIDSessionBuilder {
         let mut default_headers = HeaderMap::new();
 
         default_headers.append(
-            reqwest::header::USER_AGENT,
+            USER_AGENT,
             HeaderValue::from_str(&user_agent).unwrap(),
         );
 
         default_headers.append(
-            reqwest::header::ACCEPT,
+            ACCEPT,
             HeaderValue::from_str("application/json").unwrap(),
         );
 
         // construct reqwest session for authentication with:
         // - custom default headers
         // - no-redirects policy
-        let client = reqwest::Client::builder()
+        let client: Client = Client::builder()
             .default_headers(default_headers)
+            .cookie_store(true)
             .timeout(timeout)
-            .redirect(reqwest::RedirectPolicy::none())
+            .redirect(RedirectPolicy::none())
             .build()?;
 
         // log in
-        let mut url = self.login_url.clone();
-        let mut cookies = CookieJar::new();
-        let mut headers = HeaderMap::new();
+        let mut url = self.login_url;
         let mut state: HashMap<String, String> = HashMap::new();
 
         // ask fedora OpenID system how to authenticate
         // follow redirects until the login form is reached to collect all parameters
         loop {
-            #[cfg(feature = "debug")] { dbg!(&headers); }
-
-            let response = client.get(url.clone()).headers(headers.clone()).send()?;
+            let response = client.get(url.clone()).send()?;
             let status = response.status();
 
-            #[cfg(feature = "debug")] { dbg!(&response); }
+            #[cfg(feature = "debug")]
+            {
+                dbg!(&response);
+            }
 
             // get and keep track of URL query arguments
             let args = url.query_pairs();
@@ -256,20 +259,9 @@ impl OpenIDSessionBuilder {
                 state.insert(key.to_string(), value.to_string());
             }
 
-            for cookie in response.cookies() {
-                let new = cookie::Cookie::new(cookie.name().to_owned(), cookie.value().to_owned());
-
-                headers.append(
-                    reqwest::header::COOKIE,
-                    HeaderValue::from_str(&new.to_string()).unwrap(),
-                );
-
-                cookies.add(new);
-            }
-
             if status.is_redirection() {
                 // set next URL to redirect destination
-                let header: &reqwest::header::HeaderValue = match response.headers().get("location")
+                let header: &HeaderValue = match response.headers().get("location")
                 {
                     Some(value) => value,
                     None => {
@@ -313,35 +305,19 @@ impl OpenIDSessionBuilder {
             .entry(String::from("openid.mode"))
             .or_insert(String::from("checkid_setup"));
 
-        #[cfg(feature = "debug")] { dbg!(&headers); }
-
         // send authentication request
-        let mut response = match client
-            .post(self.auth_url)
-            .form(&state)
-            .headers(headers.clone())
-            .send()
-        {
+        let response = match client.post(self.auth_url).form(&state).send() {
             Ok(response) => response,
             Err(error) => return Err(OpenIDClientError::AuthenticationError { error }),
         };
 
-        #[cfg(feature = "debug")] { dbg!(&response); }
-
-        for cookie in response.cookies() {
-            let new = cookie::Cookie::new(cookie.name().to_owned(), cookie.value().to_owned());
-
-            headers.append(
-                reqwest::header::COOKIE,
-                HeaderValue::from_str(&new.to_string()).unwrap(),
-            );
-
-            cookies.add(new);
+        #[cfg(feature = "debug")]
+        {
+            dbg!(&response);
         }
 
-        let string = response.text()?;
-
         // the only indication that authenticating failed is a non-JSON response
+        let string = response.text()?;
         let openid_auth: OpenIDResponse = match serde_json::from_str(&string) {
             Ok(value) => value,
             Err(_) => {
@@ -355,29 +331,32 @@ impl OpenIDSessionBuilder {
             });
         }
 
-        // construct a new, clean session with all the necessary cookies
-        let mut default_headers = HeaderMap::new();
+        let return_url = match openid_auth.response.get("openid.return_to") {
+            Some(return_to) => (Url::parse(return_to)?),
+            None => return Err(OpenIDClientError::AuthenticationFlowError {
+                error: String::from("OpenID endpoint returned an error code.") })
+        };
 
-        default_headers.append(
-            reqwest::header::USER_AGENT,
-            HeaderValue::from_str(&user_agent).unwrap(),
-        );
+        let response = match client.post(return_url).form(&openid_auth.response).send() {
+            Ok(response) => response,
+            Err(error) => return Err(OpenIDClientError::RequestError { error }),
+        };
 
-        default_headers.append(
-            reqwest::header::ACCEPT,
-            HeaderValue::from_str("application/json").unwrap(),
-        );
-
-        for (header_name, header_value) in headers.into_iter() {
-            if let Some(header_name) = header_name {
-                default_headers.append(header_name, header_value);
+        #[cfg(feature = "debug")]
+            {
+                dbg!(&response);
             }
-        }
 
-        let client = reqwest::Client::builder()
-            .default_headers(default_headers)
-            .timeout(timeout)
-            .build()?;
+        if !response.status().is_success() && !response.status().is_redirection() {
+            #[cfg(feature = "debug")]
+            {
+                println!("{}", &response.text()?);
+            }
+
+            return Err(OpenIDClientError::AuthenticationFlowError {
+                error: String::from("Failed to complete authentication with the original site.")
+            });
+        };
 
         Ok(OpenIDSession { client })
     }
@@ -385,7 +364,7 @@ impl OpenIDSessionBuilder {
 
 /// An session that contains cookies obtained by successfully authenticating
 /// via OpenID, which implements the `Session` trait, just like the
-/// `AnonymousSession`. It currently only wraps a `reqwest::Client`.
+/// `AnonymousSession`. It currently only wraps a `reqwest::blocking::Client`.
 #[derive(Debug)]
 pub struct OpenIDSession {
     client: Client,
