@@ -1,5 +1,5 @@
 //! This module contains an anonymous session implementation providing the same interface as the
-//! authenticated implementations.
+//! authenticated implementations of [`Session`](../session/trait.Session.html).
 
 use std::time::Duration;
 
@@ -11,7 +11,8 @@ use reqwest::RedirectPolicy;
 use crate::Session;
 use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
 
-/// This error is returned if the initialization of a `reqwest` session fails.
+/// This error is returned if the initialization of a [`reqwest`](https://docs.rs/reqwest) session
+/// fails.
 #[derive(Debug, Fail)]
 #[fail(display = "Failed to initialize session: {}", error)]
 pub struct InitialisationError {
@@ -25,7 +26,8 @@ impl From<reqwest::Error> for InitialisationError {
 }
 
 /// Use this builder to construct a custom anonymous session that implements the
-/// same `Session` trait as the `OpenIDSession`.
+/// same [`Session`](../session/trait.Session.html) trait as the
+/// [`OpenIDSession`](../openid/struct.OpenIDSession.html).
 ///
 /// ```
 /// let session = fedora::AnonymousSessionBuilder::new()
@@ -97,7 +99,8 @@ impl AnonymousSessionBuilder {
 }
 
 /// An anonymous session with slightly custom settings, and implementing the
-/// same `Session` Trait as the `OpenIDSession`. It currently only wraps a
+/// same [`Session`](../session/trait.Session.html) Trait as the
+/// [`OpenIDSession`](../openid/struct.OpenIDSession.html). It currently only wraps a
 /// `reqwest::blocking::Client`.
 #[derive(Debug)]
 pub struct AnonymousSession {

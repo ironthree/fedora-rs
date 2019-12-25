@@ -1,8 +1,7 @@
-//! This module contains utilities that serve as the basis for
-//! interacting with fedora (web) services.
+//! This module contains code that helps serve as the basis for interacting with fedora (web)
+//! services and implementing other features on top of it.
 //!
-//! Currently, only a work-in-progress implementation for OpenID authentication
-//! and an anonymous session is available.
+//! Currently, an implementation for OpenID authentication and an anonymous session are available.
 
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]

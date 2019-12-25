@@ -4,8 +4,8 @@
 
 use reqwest::blocking::Client;
 
-/// This trait is used to mark both `AnonymousSession` and `OpenIDSession`, so
-/// they can be used interchangeably.
+/// This trait is used to mark both `AnonymousSession` and `OpenIDSession`, so they can be used
+/// interchangeably or dynamically.
 pub trait Session {
     /// This method returs a reference to the wrapped [`reqwest`](https://docs.rs/reqwest) client.
     fn session(&self) -> &Client;

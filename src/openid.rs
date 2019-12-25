@@ -8,7 +8,7 @@ use failure::Fail;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
 use reqwest::RedirectPolicy;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::session::Session;
@@ -16,11 +16,11 @@ use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
 
 /// This is the OpenID authentication endpoint for "production" instances of
 /// fedora services.
-const FEDORA_OPENID_API: &str = "https://id.fedoraproject.org/api/v1/";
+pub const FEDORA_OPENID_API: &str = "https://id.fedoraproject.org/api/v1/";
 
 /// This is the OpenID authentication endpoint for "staging" instances of
 /// fedora services.
-const FEDORA_OPENID_STG_API: &str = "https://id.stg.fedoraproject.org/api/v1/";
+pub const FEDORA_OPENID_STG_API: &str = "https://id.stg.fedoraproject.org/api/v1/";
 
 /// This collection of errors is returned for various failure modes when setting
 /// up a session authenticated via OpenID.
@@ -83,56 +83,63 @@ impl From<serde_json::error::Error> for OpenIDClientError {
     }
 }
 
-/// This struct represents an OpenID endpoint's response after a successful
-/// authentication request.
+/// This struct represents an OpenID endpoint's response after a successful authentication request.
 #[derive(Debug, Deserialize)]
 struct OpenIDResponse {
     success: bool,
-    response: HashMap<String, String>,
+    response: OpenIDParameters,
 }
 
-/// This struct contains the concrete OpenID parameters. They are currently
-/// unused.
-#[derive(Debug, Deserialize)]
-struct OpenIDParameters {
-    #[serde(rename(deserialize = "openid.ns.sreg"))]
-    openid_ns_sreg: String,
-    #[serde(rename(deserialize = "openid.mode"))]
-    openid_mode: String,
-    #[serde(rename(deserialize = "openid.sreg.nickname"))]
-    openid_sreg_nickname: String,
-    #[serde(rename(deserialize = "openid.claimed_id"))]
-    openid_claimed_id: String,
-    #[serde(rename(deserialize = "openid.sig"))]
-    openid_sig: String,
-    #[serde(rename(deserialize = "openid.return_to"))]
-    openid_return_to: String,
-    #[serde(rename(deserialize = "openid.signed"))]
-    openid_signed: String,
-    #[serde(rename(deserialize = "openid.cla.signed_cla"))]
-    openid_cla_signed_cla: String,
-    #[serde(rename(deserialize = "openid.assoc_handle"))]
-    openid_assoc_handle: String,
-    #[serde(rename(deserialize = "openid.sreg.email"))]
-    openid_sreg_email: String,
-    #[serde(rename(deserialize = "openid.ns"))]
-    openid_ns: String,
-    #[serde(rename(deserialize = "openid.lp.is_member"))]
-    openid_lp_is_member: String,
-    #[serde(rename(deserialize = "openid.ns.cla"))]
-    openid_ns_cla: String,
-    #[serde(rename(deserialize = "openid.response_nonce"))]
-    openid_response_nonce: String,
-    #[serde(rename(deserialize = "openid.op_endpoint"))]
-    openid_op_endpoint: String,
-    #[serde(rename(deserialize = "openid.ns.lp"))]
-    openid_ns_lp: String,
-    #[serde(rename(deserialize = "openid.identity"))]
-    openid_identity: String,
+/// This struct contains the concrete OpenID parameters. They are currently unused, except for the
+/// `openid.return_to` parameter.
+#[allow(missing_docs)]
+#[derive(Debug, Deserialize, Serialize)]
+pub struct OpenIDParameters {
+    #[serde(rename = "openid.assoc_handle")]
+    pub assoc_handle: String,
+    #[serde(rename = "openid.cla.signed_cla")]
+    pub cla_signed_cla: String,
+    #[serde(rename = "openid.claimed_id")]
+    pub claimed_id: String,
+    #[serde(rename = "openid.identity")]
+    pub identity: String,
+    #[serde(rename = "openid.lp.is_member")]
+    pub lp_is_member: String,
+    #[serde(rename = "openid.mode")]
+    pub mode: String,
+    #[serde(rename = "openid.ns")]
+    pub ns: String,
+    #[serde(rename = "openid.ns.cla")]
+    pub ns_cla: String,
+    #[serde(rename = "openid.ns.lp")]
+    pub ns_lp: String,
+    #[serde(rename = "openid.ns.sreg")]
+    pub ns_sreg: String,
+    #[serde(rename = "openid.op_endpoint")]
+    pub op_endpoint: String,
+    #[serde(rename = "openid.response_nonce")]
+    pub response_nonce: String,
+    /// This parameter is used to determine which URL to return to for completing a successful
+    /// authentication flow.
+    #[serde(rename = "openid.return_to")]
+    pub return_to: String,
+    #[serde(rename = "openid.sig")]
+    pub sig: String,
+    #[serde(rename = "openid.signed")]
+    pub signed: String,
+    #[serde(rename = "openid.sreg.email")]
+    pub sreg_email: String,
+    #[serde(rename = "openid.sreg.nickname")]
+    pub sreg_nickname: String,
+
+    /// This catch-all map contains all attributes that are not captured by the known parameters.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
-/// Use this builder to construct a custom session authenticated via OpenID.
-/// It implements the `Session` trait, like `AnonymousSession`.
+/// Use this builder to construct a custom session authenticated via OpenID. It implements the
+/// [`Session`](../session/trait.Session.html) trait, like
+/// [`AnonymousSession`](../anonymous/struct.AnonymousSession.html).
 ///
 /// ```
 /// # use url::Url;
@@ -159,8 +166,7 @@ pub struct OpenIDSessionBuilder {
 }
 
 impl OpenIDSessionBuilder {
-    /// This method creates a new builder for the "production" instances
-    /// of the fedora services.
+    /// This method creates a new builder for the "production" instances of the fedora services.
     pub fn default(login_url: Url, username: String, password: String) -> Self {
         OpenIDSessionBuilder {
             auth_url: Url::parse(FEDORA_OPENID_API).unwrap(),
@@ -172,8 +178,7 @@ impl OpenIDSessionBuilder {
         }
     }
 
-    /// This method creates a new builder for the "staging" instances
-    /// of the fedora services.
+    /// This method creates a new builder for the "staging" instances of the fedora services.
     pub fn staging(login_url: Url, username: String, password: String) -> Self {
         OpenIDSessionBuilder {
             auth_url: Url::parse(FEDORA_OPENID_STG_API).unwrap(),
@@ -185,8 +190,8 @@ impl OpenIDSessionBuilder {
         }
     }
 
-    /// This method creates a custom builder, where both authentication endpoint
-    /// and login URL need to be specified manually.
+    /// This method creates a custom builder, where both authentication endpoint and login URL need
+    /// to be specified manually.
     pub fn custom(auth_url: Url, login_url: Url, username: String, password: String) -> Self {
         OpenIDSessionBuilder {
             auth_url,
@@ -210,9 +215,9 @@ impl OpenIDSessionBuilder {
         self
     }
 
-    /// This method consumes the builder and attempts to build the session,
-    /// complete the authentication workflow, and return a session with
-    /// all the necessary cookies and headers included.
+    /// This method consumes the builder and attempts to build the session, complete the
+    /// authentication workflow, and return a session with all the necessary cookies and headers
+    /// included.
     pub fn build(self) -> Result<OpenIDSession, OpenIDClientError> {
         let timeout = match self.timeout {
             Some(timeout) => timeout,
@@ -320,7 +325,7 @@ impl OpenIDSessionBuilder {
             dbg!(&response);
         }
 
-        // the only indication that authenticating failed is a non-JSON response
+        // the only indication that authenticating failed is a non-JSON response, or invalid message
         let string = response.text()?;
         let openid_auth: OpenIDResponse = match serde_json::from_str(&string) {
             Ok(value) => value,
@@ -335,14 +340,7 @@ impl OpenIDSessionBuilder {
             });
         }
 
-        let return_url = match openid_auth.response.get("openid.return_to") {
-            Some(return_to) => (Url::parse(return_to)?),
-            None => {
-                return Err(OpenIDClientError::AuthenticationError {
-                    error: String::from("OpenID endpoint returned an error code."),
-                })
-            },
-        };
+        let return_url = Url::parse(&openid_auth.response.return_to)?;
 
         let response = match client.post(return_url).form(&openid_auth.response).send() {
             Ok(response) => response,
@@ -369,9 +367,10 @@ impl OpenIDSessionBuilder {
     }
 }
 
-/// An session that contains cookies obtained by successfully authenticating
-/// via OpenID, which implements the `Session` trait, just like the
-/// `AnonymousSession`. It currently only wraps a `reqwest::blocking::Client`.
+/// An session that contains cookies obtained by successfully authenticating via OpenID, which
+/// implements the [`Session`](../session/trait.Session.html) trait, just like the
+/// [`AnonymousSession`](../anonymous/struct.AnonymousSession.html). It currently only wraps a
+/// `reqwest::blocking::Client`.
 #[derive(Debug)]
 pub struct OpenIDSession {
     client: Client,
