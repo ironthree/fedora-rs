@@ -1,9 +1,12 @@
+//! This module contains an anonymous session implementation providing the same interface as the
+//! authenticated implementations.
+
 use std::time::Duration;
 
 use failure::Fail;
-use reqwest::RedirectPolicy;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
+use reqwest::RedirectPolicy;
 
 use crate::Session;
 use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
@@ -28,7 +31,8 @@ impl From<reqwest::Error> for InitialisationError {
 /// let session = fedora::AnonymousSessionBuilder::new()
 ///     .timeout(std::time::Duration::from_secs(120))
 ///     .user_agent(String::from("rustdoc"))
-///     .build().unwrap();
+///     .build()
+///     .unwrap();
 /// ```
 #[derive(Debug, Default)]
 pub struct AnonymousSessionBuilder {
@@ -74,15 +78,9 @@ impl AnonymousSessionBuilder {
         // - Accept: application/json
         let mut headers = HeaderMap::new();
 
-        headers.insert(
-            USER_AGENT,
-            HeaderValue::from_str(&user_agent).unwrap(),
-        );
+        headers.insert(USER_AGENT, HeaderValue::from_str(&user_agent).unwrap());
 
-        headers.insert(
-            ACCEPT,
-            HeaderValue::from_str("application/json").unwrap(),
-        );
+        headers.insert(ACCEPT, HeaderValue::from_str("application/json").unwrap());
 
         // construct reqwest session with:
         // - custom default headers

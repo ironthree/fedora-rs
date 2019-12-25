@@ -29,7 +29,7 @@ fn main() -> Result<(), String> {
         Ok(_session) => {
             println!("Successfully logged in.");
             Ok(())
-        }
+        },
         Err(error) => Err(format!("{}", error)),
     }
 }

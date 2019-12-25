@@ -1,10 +1,13 @@
+//! This module contains a session implementation with authentication via the fedora OpenID
+//! provider.
+
 use std::collections::HashMap;
 use std::time::Duration;
 
 use failure::Fail;
-use reqwest::RedirectPolicy;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
+use reqwest::RedirectPolicy;
 use serde::Deserialize;
 use url::Url;
 
@@ -23,28 +26,39 @@ const FEDORA_OPENID_STG_API: &str = "https://id.stg.fedoraproject.org/api/v1/";
 /// up a session authenticated via OpenID.
 #[derive(Debug, Fail)]
 pub enum OpenIDClientError {
-    /// This error is returned for networking-related issues.
+    /// This error represents a network-related issue that occurred within
+    /// [`reqwest`](https://docs.rs/reqwest).
     #[fail(display = "Failed to contact OpenID provider: {}", error)]
-    RequestError { error: reqwest::Error },
+    RequestError {
+        /// The inner error contains the error passed from [`reqwest`](https://docs.rs/reqwest).
+        error: reqwest::Error,
+    },
     /// This error is returned when an input URL was invalid.
     #[fail(display = "Failed to parse redirection URL: {}", error)]
-    UrlParsingError { error: url::ParseError },
+    UrlParsingError {
+        /// The inner error contains the error that occurred when parsing the invalid URL.
+        error: url::ParseError,
+    },
     /// This error is returned if a HTTP redirect was invalid.
     #[fail(display = "{}", error)]
-    RedirectionError { error: String },
+    RedirectionError {
+        /// The inner error contains more details (failed to decode URL / missing URL from headers).
+        error: String,
+    },
     /// This error is returned for authentication-related issues.
     #[fail(display = "Failed to authenticate with OpenID service: {}", error)]
-    AuthenticationError { error: reqwest::Error },
+    AuthenticationError {
+        /// The inner error contains an explanation why the authentication request failed.
+        error: String,
+    },
     /// This error is returned when the JSON response from the OpenID endpoint
     /// was not in the standard format, or was missing expected values.
-    #[fail(
-        display = "Failed to deserialize JSON returned by OpenID endpoint: {}",
-        error
-    )]
-    DeserializationError { error: serde_json::error::Error },
-    /// This error is returned for various authentication flow issues.
-    #[fail(display = "Failed to complete OpenID authentication flow: {}", error)]
-    AuthenticationFlowError { error: String },
+    #[fail(display = "Failed to deserialize JSON returned by OpenID endpoint: {}", error)]
+    DeserializationError {
+        /// The inner error contains the deserialization error message from
+        /// [`serde_json`](https://docs.rs/serde_json).
+        error: serde_json::error::Error,
+    },
     /// This error is returned when an error occurs during authentication,
     /// primarily due to wrong combinations of username and password.
     #[fail(display = "Authentication failed, possibly due to wrong username / password.")]
@@ -127,12 +141,10 @@ struct OpenIDParameters {
 /// let builder = fedora::OpenIDSessionBuilder::default(
 ///     Url::parse("https://bodhi.fedoraproject.org/login").unwrap(),
 ///     String::from("fedorauser"),
-///     String::from("password12")
-/// ).timeout(
-///     Duration::from_secs(120)
-/// ).user_agent(
-///     String::from("rustdoc")
-/// );
+///     String::from("password12"),
+/// )
+/// .timeout(Duration::from_secs(120))
+/// .user_agent(String::from("rustdoc"));
 ///
 /// // let session = builder.build()?;
 /// ```
@@ -217,15 +229,9 @@ impl OpenIDSessionBuilder {
         // - Accept: application/json
         let mut default_headers = HeaderMap::new();
 
-        default_headers.append(
-            USER_AGENT,
-            HeaderValue::from_str(&user_agent).unwrap(),
-        );
+        default_headers.append(USER_AGENT, HeaderValue::from_str(&user_agent).unwrap());
 
-        default_headers.append(
-            ACCEPT,
-            HeaderValue::from_str("application/json").unwrap(),
-        );
+        default_headers.append(ACCEPT, HeaderValue::from_str("application/json").unwrap());
 
         // construct reqwest session for authentication with:
         // - custom default headers
@@ -261,16 +267,13 @@ impl OpenIDSessionBuilder {
 
             if status.is_redirection() {
                 // set next URL to redirect destination
-                let header: &HeaderValue = match response.headers().get("location")
-                {
+                let header: &HeaderValue = match response.headers().get("location") {
                     Some(value) => value,
                     None => {
                         return Err(OpenIDClientError::RedirectionError {
-                            error: String::from(
-                                "No redirect URL provided in HTTP redirect headers.",
-                            ),
+                            error: String::from("No redirect URL provided in HTTP redirect headers."),
                         });
-                    }
+                    },
                 };
 
                 let string = match header.to_str() {
@@ -279,7 +282,7 @@ impl OpenIDSessionBuilder {
                         return Err(OpenIDClientError::RedirectionError {
                             error: String::from("Failed to decode redirect URL."),
                         });
-                    }
+                    },
                 };
 
                 url = Url::parse(string)?;
@@ -293,10 +296,7 @@ impl OpenIDSessionBuilder {
         state.insert(String::from("password"), self.password);
 
         // insert additional query arguments into the state / query
-        state.insert(
-            String::from("auth_module"),
-            String::from("fedoauth.auth.fas.Auth_FAS"),
-        );
+        state.insert(String::from("auth_module"), String::from("fedoauth.auth.fas.Auth_FAS"));
 
         state.insert(String::from("auth_flow"), String::from("fedora"));
 
@@ -308,7 +308,11 @@ impl OpenIDSessionBuilder {
         // send authentication request
         let response = match client.post(self.auth_url).form(&state).send() {
             Ok(response) => response,
-            Err(error) => return Err(OpenIDClientError::AuthenticationError { error }),
+            Err(error) => {
+                return Err(OpenIDClientError::AuthenticationError {
+                    error: error.to_string(),
+                })
+            },
         };
 
         #[cfg(feature = "debug")]
@@ -322,19 +326,22 @@ impl OpenIDSessionBuilder {
             Ok(value) => value,
             Err(_) => {
                 return Err(OpenIDClientError::LoginError);
-            }
+            },
         };
 
         if !openid_auth.success {
-            return Err(OpenIDClientError::AuthenticationFlowError {
+            return Err(OpenIDClientError::AuthenticationError {
                 error: String::from("OpenID endpoint returned an error code."),
             });
         }
 
         let return_url = match openid_auth.response.get("openid.return_to") {
             Some(return_to) => (Url::parse(return_to)?),
-            None => return Err(OpenIDClientError::AuthenticationFlowError {
-                error: String::from("OpenID endpoint returned an error code.") })
+            None => {
+                return Err(OpenIDClientError::AuthenticationError {
+                    error: String::from("OpenID endpoint returned an error code."),
+                })
+            },
         };
 
         let response = match client.post(return_url).form(&openid_auth.response).send() {
@@ -343,9 +350,9 @@ impl OpenIDSessionBuilder {
         };
 
         #[cfg(feature = "debug")]
-            {
-                dbg!(&response);
-            }
+        {
+            dbg!(&response);
+        }
 
         if !response.status().is_success() && !response.status().is_redirection() {
             #[cfg(feature = "debug")]
@@ -353,8 +360,8 @@ impl OpenIDSessionBuilder {
                 println!("{}", &response.text()?);
             }
 
-            return Err(OpenIDClientError::AuthenticationFlowError {
-                error: String::from("Failed to complete authentication with the original site.")
+            return Err(OpenIDClientError::AuthenticationError {
+                error: String::from("Failed to complete authentication with the original site."),
             });
         };
 

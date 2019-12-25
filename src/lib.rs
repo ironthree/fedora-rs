@@ -4,6 +4,9 @@
 //! Currently, only a work-in-progress implementation for OpenID authentication
 //! and an anonymous session is available.
 
+#![warn(missing_docs)]
+#![warn(missing_debug_implementations)]
+
 use std::time::Duration;
 
 const FEDORA_USER_AGENT: &str = "fedora-rs";
