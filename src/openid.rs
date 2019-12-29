@@ -147,27 +147,27 @@ pub struct OpenIDParameters {
 ///
 /// let builder = fedora::OpenIDSessionBuilder::default(
 ///     Url::parse("https://bodhi.fedoraproject.org/login").unwrap(),
-///     String::from("fedorauser"),
-///     String::from("password12"),
+///     "fedorauser",
+///     "password12",
 /// )
 /// .timeout(Duration::from_secs(120))
-/// .user_agent(String::from("rustdoc"));
+/// .user_agent("rustdoc");
 ///
 /// // let session = builder.build()?;
 /// ```
 #[derive(Debug)]
-pub struct OpenIDSessionBuilder {
+pub struct OpenIDSessionBuilder<'a> {
     auth_url: Url,
     login_url: Url,
-    username: String,
-    password: String,
+    username: &'a str,
+    password: &'a str,
     timeout: Option<Duration>,
-    user_agent: Option<String>,
+    user_agent: Option<&'a str>,
 }
 
-impl OpenIDSessionBuilder {
+impl<'a> OpenIDSessionBuilder<'a> {
     /// This method creates a new builder for the "production" instances of the fedora services.
-    pub fn default(login_url: Url, username: String, password: String) -> Self {
+    pub fn default(login_url: Url, username: &'a str, password: &'a str) -> Self {
         OpenIDSessionBuilder {
             auth_url: Url::parse(FEDORA_OPENID_API).unwrap(),
             login_url,
@@ -179,7 +179,7 @@ impl OpenIDSessionBuilder {
     }
 
     /// This method creates a new builder for the "staging" instances of the fedora services.
-    pub fn staging(login_url: Url, username: String, password: String) -> Self {
+    pub fn staging(login_url: Url, username: &'a str, password: &'a str) -> Self {
         OpenIDSessionBuilder {
             auth_url: Url::parse(FEDORA_OPENID_STG_API).unwrap(),
             login_url,
@@ -192,7 +192,7 @@ impl OpenIDSessionBuilder {
 
     /// This method creates a custom builder, where both authentication endpoint and login URL need
     /// to be specified manually.
-    pub fn custom(auth_url: Url, login_url: Url, username: String, password: String) -> Self {
+    pub fn custom(auth_url: Url, login_url: Url, username: &'a str, password: &'a str) -> Self {
         OpenIDSessionBuilder {
             auth_url,
             login_url,
@@ -210,7 +210,7 @@ impl OpenIDSessionBuilder {
     }
 
     /// This method can be used to override the default request user agent.
-    pub fn user_agent(mut self, user_agent: String) -> Self {
+    pub fn user_agent(mut self, user_agent: &'a str) -> Self {
         self.user_agent = Some(user_agent);
         self
     }
@@ -226,7 +226,7 @@ impl OpenIDSessionBuilder {
 
         let user_agent = match self.user_agent {
             Some(user_agent) => user_agent,
-            None => String::from(FEDORA_USER_AGENT),
+            None => FEDORA_USER_AGENT,
         };
 
         // set default headers for our requests
@@ -235,7 +235,6 @@ impl OpenIDSessionBuilder {
         let mut default_headers = HeaderMap::new();
 
         default_headers.append(USER_AGENT, HeaderValue::from_str(&user_agent).unwrap());
-
         default_headers.append(ACCEPT, HeaderValue::from_str("application/json").unwrap());
 
         // construct reqwest session for authentication with:
@@ -297,18 +296,17 @@ impl OpenIDSessionBuilder {
         }
 
         // insert username and password into the state / query
-        state.insert(String::from("username"), self.username);
-        state.insert(String::from("password"), self.password);
+        state.insert("username".to_string(), self.username.to_string());
+        state.insert("password".to_string(), self.password.to_string());
 
         // insert additional query arguments into the state / query
-        state.insert(String::from("auth_module"), String::from("fedoauth.auth.fas.Auth_FAS"));
-
-        state.insert(String::from("auth_flow"), String::from("fedora"));
+        state.insert("auth_module".to_string(), "fedoauth.auth.fas.Auth_FAS".to_string());
+        state.insert("auth_flow".to_string(), "fedora".to_string());
 
         #[allow(clippy::or_fun_call)]
         state
-            .entry(String::from("openid.mode"))
-            .or_insert(String::from("checkid_setup"));
+            .entry("openid.mode".to_string())
+            .or_insert("checkid_setup".to_string());
 
         // send authentication request
         let response = match client.post(self.auth_url).form(&state).send() {

@@ -32,17 +32,17 @@ impl From<reqwest::Error> for InitialisationError {
 /// ```
 /// let session = fedora::AnonymousSessionBuilder::new()
 ///     .timeout(std::time::Duration::from_secs(120))
-///     .user_agent(String::from("rustdoc"))
+///     .user_agent("rustdoc")
 ///     .build()
 ///     .unwrap();
 /// ```
 #[derive(Debug, Default)]
-pub struct AnonymousSessionBuilder {
+pub struct AnonymousSessionBuilder<'a> {
     timeout: Option<Duration>,
-    user_agent: Option<String>,
+    user_agent: Option<&'a str>,
 }
 
-impl AnonymousSessionBuilder {
+impl<'a> AnonymousSessionBuilder<'a> {
     /// This method creates a new builder.
     pub fn new() -> Self {
         AnonymousSessionBuilder {
@@ -58,7 +58,7 @@ impl AnonymousSessionBuilder {
     }
 
     /// This method can be used to override the default request user agent.
-    pub fn user_agent(mut self, user_agent: String) -> Self {
+    pub fn user_agent(mut self, user_agent: &'a str) -> Self {
         self.user_agent = Some(user_agent);
         self
     }
@@ -72,7 +72,7 @@ impl AnonymousSessionBuilder {
 
         let user_agent = match self.user_agent {
             Some(user_agent) => user_agent,
-            None => String::from(FEDORA_USER_AGENT),
+            None => FEDORA_USER_AGENT,
         };
 
         // set default headers for our requests
@@ -80,7 +80,7 @@ impl AnonymousSessionBuilder {
         // - Accept: application/json
         let mut headers = HeaderMap::new();
 
-        headers.insert(USER_AGENT, HeaderValue::from_str(&user_agent).unwrap());
+        headers.insert(USER_AGENT, HeaderValue::from_str(user_agent).unwrap());
 
         headers.insert(ACCEPT, HeaderValue::from_str("application/json").unwrap());
 
