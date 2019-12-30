@@ -6,7 +6,7 @@ use std::time::Duration;
 use failure::Fail;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
-use reqwest::RedirectPolicy;
+use reqwest::redirect::Policy;
 
 use crate::Session;
 use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
@@ -91,7 +91,7 @@ impl<'a> AnonymousSessionBuilder<'a> {
             .default_headers(headers)
             .cookie_store(true)
             .timeout(timeout)
-            .redirect(RedirectPolicy::none())
+            .redirect(Policy::none())
             .build()?;
 
         Ok(AnonymousSession { client })

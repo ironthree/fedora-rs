@@ -7,7 +7,7 @@ use std::time::Duration;
 use failure::Fail;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
-use reqwest::RedirectPolicy;
+use reqwest::redirect::Policy;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -244,7 +244,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
             .default_headers(default_headers)
             .cookie_store(true)
             .timeout(timeout)
-            .redirect(RedirectPolicy::none())
+            .redirect(Policy::none())
             .build()?;
 
         // log in
