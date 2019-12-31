@@ -361,7 +361,10 @@ impl<'a> OpenIDSessionBuilder<'a> {
             });
         };
 
-        Ok(OpenIDSession { client })
+        Ok(OpenIDSession {
+            client,
+            params: openid_auth.response,
+        })
     }
 }
 
@@ -372,9 +375,16 @@ impl<'a> OpenIDSessionBuilder<'a> {
 #[derive(Debug)]
 pub struct OpenIDSession {
     client: Client,
+    params: OpenIDParameters,
 }
 
-impl OpenIDSession {}
+impl OpenIDSession {
+    /// This method returns a reference to the [`OpenIDParameters`](struct.OpenIDParameters.html)
+    /// that were returned by the OpenID endpoint after successful authentication.
+    pub fn params(&self) -> &OpenIDParameters {
+        &self.params
+    }
+}
 
 impl Session for OpenIDSession {
     fn session(&self) -> &Client {
