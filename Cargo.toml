@@ -10,7 +10,7 @@ authors = ["Fabio Valentini <decathorpe@gmail.com>"]
 readme = "README.md"
 categories = ["api-bindings"]
 keywords = ["fedora", "client", "authentication", "openid"]
-repository = "https://github.com/ironthree/fedora-rs"
+repository = "https://pagure.io/ironthree/fedora-rs"
 
 [features]
 default = []

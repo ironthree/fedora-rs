@@ -39,3 +39,4 @@ Right now, the dependencies of this crate are [`reqwest`][reqwest] and [`failure
 
 If you're interested in using this crate, you can enable "debug mode" by enabling the `debug` feature.
 This will enable various debug output throughout the crate (primarily HTTP response codes and cookies).
+
