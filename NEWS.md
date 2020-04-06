@@ -1,3 +1,10 @@
+# Release 0.3.0 "Storage Area" (Apr. 06, 2020)
+
+New features:
+
+- cache OpenID session cookies on disk until they expire
+- allows to not re-authenticate with the OpenID endpoint every time
+
 # Release 0.2.2 "Take this" (Dec. 31, 2019)
 
 New features:
