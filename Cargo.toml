@@ -17,6 +17,8 @@ default = []
 debug = []
 
 [dependencies]
+chrono = { version = "^0.4", features = ["serde"] }
+dirs = "^2.0"
 failure = "^0.1.6"
 reqwest = { version = "^0.10.0", features = ["blocking", "cookies"] }
 serde = { version = "^1.0.104", features = ["derive"] }

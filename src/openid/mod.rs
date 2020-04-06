@@ -4,15 +4,22 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use failure::Fail;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
 use reqwest::redirect::Policy;
-use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::session::Session;
 use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
+
+mod cookie_cache;
+use cookie_cache::CookieCache;
+
+mod error;
+use error::OpenIDClientError;
+
+mod parameters;
+use parameters::{OpenIDParameters, OpenIDResponse};
 
 /// This is the OpenID authentication endpoint for "production" instances of
 /// fedora services.
@@ -21,121 +28,6 @@ pub const FEDORA_OPENID_API: &str = "https://id.fedoraproject.org/api/v1/";
 /// This is the OpenID authentication endpoint for "staging" instances of
 /// fedora services.
 pub const FEDORA_OPENID_STG_API: &str = "https://id.stg.fedoraproject.org/api/v1/";
-
-/// This collection of errors is returned for various failure modes when setting
-/// up a session authenticated via OpenID.
-#[derive(Debug, Fail)]
-pub enum OpenIDClientError {
-    /// This error represents a network-related issue that occurred within
-    /// [`reqwest`](https://docs.rs/reqwest).
-    #[fail(display = "Failed to contact OpenID provider: {}", error)]
-    RequestError {
-        /// The inner error contains the error passed from [`reqwest`](https://docs.rs/reqwest).
-        error: reqwest::Error,
-    },
-    /// This error is returned when an input URL was invalid.
-    #[fail(display = "Failed to parse redirection URL: {}", error)]
-    UrlParsingError {
-        /// The inner error contains the error that occurred when parsing the invalid URL.
-        error: url::ParseError,
-    },
-    /// This error is returned if a HTTP redirect was invalid.
-    #[fail(display = "{}", error)]
-    RedirectionError {
-        /// The inner error contains more details (failed to decode URL / missing URL from headers).
-        error: String,
-    },
-    /// This error is returned for authentication-related issues.
-    #[fail(display = "Failed to authenticate with OpenID service: {}", error)]
-    AuthenticationError {
-        /// The inner error contains an explanation why the authentication request failed.
-        error: String,
-    },
-    /// This error is returned when the JSON response from the OpenID endpoint
-    /// was not in the standard format, or was missing expected values.
-    #[fail(display = "Failed to deserialize JSON returned by OpenID endpoint: {}", error)]
-    DeserializationError {
-        /// The inner error contains the deserialization error message from
-        /// [`serde_json`](https://docs.rs/serde_json).
-        error: serde_json::error::Error,
-    },
-    /// This error is returned when an error occurs during authentication,
-    /// primarily due to wrong combinations of username and password.
-    #[fail(display = "Authentication failed, possibly due to wrong username / password.")]
-    LoginError,
-}
-
-impl From<reqwest::Error> for OpenIDClientError {
-    fn from(error: reqwest::Error) -> Self {
-        OpenIDClientError::RequestError { error }
-    }
-}
-
-impl From<url::ParseError> for OpenIDClientError {
-    fn from(error: url::ParseError) -> Self {
-        OpenIDClientError::UrlParsingError { error }
-    }
-}
-
-impl From<serde_json::error::Error> for OpenIDClientError {
-    fn from(error: serde_json::error::Error) -> Self {
-        OpenIDClientError::DeserializationError { error }
-    }
-}
-
-/// This struct represents an OpenID endpoint's response after a successful authentication request.
-#[derive(Debug, Deserialize)]
-struct OpenIDResponse {
-    success: bool,
-    response: OpenIDParameters,
-}
-
-/// This struct contains the concrete OpenID parameters. They are currently unused, except for the
-/// `openid.return_to` parameter.
-#[allow(missing_docs)]
-#[derive(Debug, Deserialize, Serialize)]
-pub struct OpenIDParameters {
-    #[serde(rename = "openid.assoc_handle")]
-    pub assoc_handle: String,
-    #[serde(rename = "openid.cla.signed_cla")]
-    pub cla_signed_cla: String,
-    #[serde(rename = "openid.claimed_id")]
-    pub claimed_id: String,
-    #[serde(rename = "openid.identity")]
-    pub identity: String,
-    #[serde(rename = "openid.lp.is_member")]
-    pub lp_is_member: String,
-    #[serde(rename = "openid.mode")]
-    pub mode: String,
-    #[serde(rename = "openid.ns")]
-    pub ns: String,
-    #[serde(rename = "openid.ns.cla")]
-    pub ns_cla: String,
-    #[serde(rename = "openid.ns.lp")]
-    pub ns_lp: String,
-    #[serde(rename = "openid.ns.sreg")]
-    pub ns_sreg: String,
-    #[serde(rename = "openid.op_endpoint")]
-    pub op_endpoint: String,
-    #[serde(rename = "openid.response_nonce")]
-    pub response_nonce: String,
-    /// This parameter is used to determine which URL to return to for completing a successful
-    /// authentication flow.
-    #[serde(rename = "openid.return_to")]
-    pub return_to: String,
-    #[serde(rename = "openid.sig")]
-    pub sig: String,
-    #[serde(rename = "openid.signed")]
-    pub signed: String,
-    #[serde(rename = "openid.sreg.email")]
-    pub sreg_email: String,
-    #[serde(rename = "openid.sreg.nickname")]
-    pub sreg_nickname: String,
-
-    /// This catch-all map contains all attributes that are not captured by the known parameters.
-    #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
-}
 
 /// Use this builder to construct a custom session authenticated via OpenID. It implements the
 /// [`Session`](../session/trait.Session.html) trait, like
@@ -163,6 +55,7 @@ pub struct OpenIDSessionBuilder<'a> {
     password: &'a str,
     timeout: Option<Duration>,
     user_agent: Option<&'a str>,
+    cache_cookies: bool,
 }
 
 impl<'a> OpenIDSessionBuilder<'a> {
@@ -175,6 +68,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
             password,
             timeout: None,
             user_agent: None,
+            cache_cookies: false,
         }
     }
 
@@ -187,6 +81,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
             password,
             timeout: None,
             user_agent: None,
+            cache_cookies: false,
         }
     }
 
@@ -200,6 +95,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
             password,
             timeout: None,
             user_agent: None,
+            cache_cookies: false,
         }
     }
 
@@ -212,6 +108,12 @@ impl<'a> OpenIDSessionBuilder<'a> {
     /// This method can be used to override the default request user agent.
     pub fn user_agent(mut self, user_agent: &'a str) -> Self {
         self.user_agent = Some(user_agent);
+        self
+    }
+
+    /// This method can be used to make the session cache cookies on disk.
+    pub fn cache_cookies(mut self, cache_cookies: bool) -> Self {
+        self.cache_cookies = cache_cookies;
         self
     }
 
@@ -237,6 +139,24 @@ impl<'a> OpenIDSessionBuilder<'a> {
         default_headers.append(USER_AGENT, HeaderValue::from_str(&user_agent).unwrap());
         default_headers.append(ACCEPT, HeaderValue::from_str("application/json").unwrap());
 
+        // take the shortcut if cookies have been stored already
+        match CookieCache::from_cached() {
+            // cookie cache successfully loaded
+            Ok(cookies) => {
+                if let Ok(session) =
+                    session_from_cookie_cache(&cookies, self.login_url.to_string(), default_headers.clone(), timeout)
+                {
+                    // cookie cache is valid and not expired
+                    return Ok(OpenIDSession {
+                        client: session,
+                        params: None,
+                    });
+                }
+            },
+            // failed to load cookie cache
+            Err(error) => println!("{}", error),
+        };
+
         // construct reqwest session for authentication with:
         // - custom default headers
         // - no-redirects policy
@@ -250,6 +170,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
         // log in
         let mut url = self.login_url;
         let mut state: HashMap<String, String> = HashMap::new();
+        let mut cookie_cache = CookieCache::new(url.to_string());
 
         // ask fedora OpenID system how to authenticate
         // follow redirects until the login form is reached to collect all parameters
@@ -257,10 +178,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
             let response = client.get(url.clone()).send()?;
             let status = response.status();
 
-            #[cfg(feature = "debug")]
-            {
-                dbg!(&response);
-            }
+            cookie_cache.ingest_cookies(&response);
 
             // get and keep track of URL query arguments
             let args = url.query_pairs();
@@ -318,11 +236,6 @@ impl<'a> OpenIDSessionBuilder<'a> {
             },
         };
 
-        #[cfg(feature = "debug")]
-        {
-            dbg!(&response);
-        }
-
         // the only indication that authenticating failed is a non-JSON response, or invalid message
         let string = response.text()?;
         let openid_auth: OpenIDResponse = match serde_json::from_str(&string) {
@@ -345,27 +258,65 @@ impl<'a> OpenIDSessionBuilder<'a> {
             Err(error) => return Err(OpenIDClientError::RequestError { error }),
         };
 
-        #[cfg(feature = "debug")]
-        {
-            dbg!(&response);
-        }
-
         if !response.status().is_success() && !response.status().is_redirection() {
-            #[cfg(feature = "debug")]
-            {
-                println!("{}", &response.text()?);
-            }
-
             return Err(OpenIDClientError::AuthenticationError {
                 error: String::from("Failed to complete authentication with the original site."),
             });
         };
 
+        if self.cache_cookies {
+            if let Err(error) = cookie_cache.write_cached() {
+                println!("{}", error);
+            }
+        };
+
         Ok(OpenIDSession {
             client,
-            params: openid_auth.response,
+            params: Some(openid_auth.response),
         })
     }
+}
+
+fn session_from_cookie_cache(
+    cookie_cache: &CookieCache,
+    login_url: String,
+    default_headers: HeaderMap,
+    timeout: std::time::Duration,
+) -> Result<Client, OpenIDClientError> {
+    if cookie_cache.login_url != login_url {
+        return Err(OpenIDClientError::CookieCacheError {
+            message: String::from("Login URLs don't match. Not reusing cached cookies."),
+        });
+    };
+
+    if cookie_cache.is_expired() {
+        return Err(OpenIDClientError::CookieCacheError {
+            message: String::from("Cookies are expired."),
+        });
+    };
+
+    let mut cookie_headers = match cookie_cache.cookie_headers() {
+        Ok(headers) => headers,
+        Err(_) => {
+            return Err(OpenIDClientError::CookieCacheError {
+                message: String::from("Failed to construct cookie headers."),
+            })
+        },
+    };
+
+    cookie_headers.extend(default_headers);
+
+    // construct reqwest session for authentication with:
+    // - custom default headers
+    // - no-redirects policy
+    let client: Client = Client::builder()
+        .default_headers(cookie_headers)
+        .cookie_store(true)
+        .timeout(timeout)
+        .redirect(Policy::none())
+        .build()?;
+
+    Ok(client)
 }
 
 /// An session that contains cookies obtained by successfully authenticating via OpenID, which
@@ -375,14 +326,14 @@ impl<'a> OpenIDSessionBuilder<'a> {
 #[derive(Debug)]
 pub struct OpenIDSession {
     client: Client,
-    params: OpenIDParameters,
+    params: Option<OpenIDParameters>,
 }
 
 impl OpenIDSession {
     /// This method returns a reference to the [`OpenIDParameters`](struct.OpenIDParameters.html)
     /// that were returned by the OpenID endpoint after successful authentication.
-    pub fn params(&self) -> &OpenIDParameters {
-        &self.params
+    pub fn params(&self) -> Option<&OpenIDParameters> {
+        self.params.as_ref()
     }
 }
 
