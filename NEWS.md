@@ -1,3 +1,10 @@
+# Release 0.3.1 "Private Area" (Apr. 06, 2020)
+
+Bugfix:
+
+- re-export OpenIDClientError as public, which was marked private
+  with 0.3.0 by accident)
+
 # Release 0.3.0 "Storage Area" (Apr. 06, 2020)
 
 New features:
