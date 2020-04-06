@@ -44,7 +44,10 @@ pub enum OpenIDClientError {
     /// This error is returned when an error occurs during usage of the on-disk
     /// cookie cache (either it's invalid, or it's expired).
     #[fail(display = "Failed to use on-disk cookie cache.")]
-    CookieCacheError { message: String },
+    CookieCacheError {
+        /// The inner error describes the issue that occurred with the cookie cache.
+        message: String,
+    },
 }
 
 impl From<reqwest::Error> for OpenIDClientError {

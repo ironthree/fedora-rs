@@ -16,7 +16,7 @@ mod cookie_cache;
 use cookie_cache::CookieCache;
 
 mod error;
-use error::OpenIDClientError;
+pub use error::OpenIDClientError;
 
 mod parameters;
 use parameters::{OpenIDParameters, OpenIDResponse};
