@@ -23,9 +23,7 @@ fn main() -> Result<(), String> {
 
     let login_url = Url::parse("https://bodhi.fedoraproject.org/login").unwrap();
 
-    let session = OpenIDSessionBuilder::default(login_url, &username, &password)
-        .cache_cookies(true)
-        .build();
+    let session = OpenIDSessionBuilder::default(login_url, &username, &password).build();
 
     match session {
         Ok(_session) => {
