@@ -8,6 +8,7 @@ edition = "2018"
 
 authors = ["Fabio Valentini <decathorpe@gmail.com>"]
 readme = "README.md"
+exclude = ["/.github/", "/rustfmt.toml"]
 categories = ["api-bindings"]
 keywords = ["fedora", "client", "authentication", "openid"]
 repository = "https://github.com/ironthree/fedora-rs"
@@ -22,3 +23,4 @@ reqwest = { version = "^0.10.0", features = ["blocking", "cookies"] }
 serde = { version = "^1.0.104", features = ["derive"] }
 serde_json = "^1.0.44"
 url = "^2.1.0"
+
