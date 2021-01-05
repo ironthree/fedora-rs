@@ -1,3 +1,11 @@
+# Release 1.0.0 "Up This Grade" (Jan. 05, 2021)
+
+Changes:
+
+- breaking: updated `reqwest` from `0.10` to `0.11` (breaking change,
+  because parts of `reqwest` are re-exported)
+- port from `failure` to `thiserror`
+
 # Release 0.2.2 "Take this" (Dec. 31, 2019)
 
 New features:
