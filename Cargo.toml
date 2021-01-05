@@ -18,9 +18,9 @@ default = []
 debug = []
 
 [dependencies]
-failure = "^0.1.6"
 reqwest = { version = "^0.10.0", features = ["blocking", "cookies"] }
 serde = { version = "^1.0.104", features = ["derive"] }
 serde_json = "^1.0.44"
+thiserror = "^1.0"
 url = "^2.1.0"
 

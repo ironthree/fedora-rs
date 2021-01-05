@@ -4,7 +4,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use failure::Fail;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
 use reqwest::redirect::Policy;
@@ -24,36 +23,36 @@ pub const FEDORA_OPENID_STG_API: &str = "https://id.stg.fedoraproject.org/api/v1
 
 /// This collection of errors is returned for various failure modes when setting
 /// up a session authenticated via OpenID.
-#[derive(Debug, Fail)]
+#[derive(Debug, thiserror::Error)]
 pub enum OpenIDClientError {
     /// This error represents a network-related issue that occurred within
     /// [`reqwest`](https://docs.rs/reqwest).
-    #[fail(display = "Failed to contact OpenID provider: {}", error)]
+    #[error("Failed to contact OpenID provider: {error}")]
     RequestError {
         /// The inner error contains the error passed from [`reqwest`](https://docs.rs/reqwest).
         error: reqwest::Error,
     },
     /// This error is returned when an input URL was invalid.
-    #[fail(display = "Failed to parse redirection URL: {}", error)]
+    #[error("Failed to parse redirection URL: {error}")]
     UrlParsingError {
         /// The inner error contains the error that occurred when parsing the invalid URL.
         error: url::ParseError,
     },
     /// This error is returned if a HTTP redirect was invalid.
-    #[fail(display = "{}", error)]
+    #[error("{error}")]
     RedirectionError {
         /// The inner error contains more details (failed to decode URL / missing URL from headers).
         error: String,
     },
     /// This error is returned for authentication-related issues.
-    #[fail(display = "Failed to authenticate with OpenID service: {}", error)]
+    #[error("Failed to authenticate with OpenID service: {error}")]
     AuthenticationError {
         /// The inner error contains an explanation why the authentication request failed.
         error: String,
     },
     /// This error is returned when the JSON response from the OpenID endpoint
     /// was not in the standard format, or was missing expected values.
-    #[fail(display = "Failed to deserialize JSON returned by OpenID endpoint: {}", error)]
+    #[error("Failed to deserialize JSON returned by OpenID endpoint: {error}")]
     DeserializationError {
         /// The inner error contains the deserialization error message from
         /// [`serde_json`](https://docs.rs/serde_json).
@@ -61,7 +60,7 @@ pub enum OpenIDClientError {
     },
     /// This error is returned when an error occurs during authentication,
     /// primarily due to wrong combinations of username and password.
-    #[fail(display = "Authentication failed, possibly due to wrong username / password.")]
+    #[error("Authentication failed, possibly due to wrong username / password.")]
     LoginError,
 }
 

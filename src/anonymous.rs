@@ -3,7 +3,6 @@
 
 use std::time::Duration;
 
-use failure::Fail;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
 use reqwest::redirect::Policy;
@@ -13,8 +12,8 @@ use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
 
 /// This error is returned if the initialization of a [`reqwest`](https://docs.rs/reqwest) session
 /// fails.
-#[derive(Debug, Fail)]
-#[fail(display = "Failed to initialize session: {}", error)]
+#[derive(Debug, thiserror::Error)]
+#[error("Failed to initialize session: {error}")]
 pub struct InitialisationError {
     error: reqwest::Error,
 }
