@@ -1,7 +1,10 @@
 //! This module contains a session implementation with authentication via the fedora OpenID
 //! provider.
 
+mod cookies;
+
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::blocking::Client;
@@ -233,15 +236,32 @@ impl<'a> OpenIDSessionBuilder<'a> {
         // - Accept: application/json
         let mut default_headers = HeaderMap::new();
 
-        default_headers.append(USER_AGENT, HeaderValue::from_str(&user_agent).unwrap());
+        default_headers.append(USER_AGENT, HeaderValue::from_str(user_agent).unwrap());
         default_headers.append(ACCEPT, HeaderValue::from_str("application/json").unwrap());
+
+        // try loading persistent cookie jar
+        let jar = Arc::new(match cookies::CachingJar::read_from_disk() {
+            Ok(jar) => jar,
+            Err(error) => {
+                // fall back to empty cookie jar if either
+                if let cookies::CookieCacheError::DoesNotExist = error {
+                    // on-disk cache does not exist yet
+                    log::info!("Creating new cookie cache.");
+                } else {
+                    // failed to deserialize on-disk cache
+                    log::info!("Failed to load cached cookies: {}", error);
+                }
+                cookies::CachingJar::empty()
+            },
+        });
 
         // construct reqwest session for authentication with:
         // - custom default headers
         // - no-redirects policy
         let client: Client = Client::builder()
-            .default_headers(default_headers)
+            .default_headers(default_headers.clone())
             .cookie_store(true)
+            .cookie_provider(jar.clone())
             .timeout(timeout)
             .redirect(Policy::none())
             .build()?;
@@ -359,6 +379,18 @@ impl<'a> OpenIDSessionBuilder<'a> {
                 error: String::from("Failed to complete authentication with the original site."),
             });
         };
+
+        if let Err(error) = jar.write_to_disk() {
+            log::info!("Failed to write cached cookies: {}", error);
+        }
+
+        // construct new client with default redirect handling, but keep all cookies
+        let client: Client = Client::builder()
+            .default_headers(default_headers)
+            .cookie_store(true)
+            .cookie_provider(jar)
+            .timeout(timeout)
+            .build()?;
 
         Ok(OpenIDSession {
             client,
