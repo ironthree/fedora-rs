@@ -4,6 +4,8 @@ use fedora::OpenIDSessionBuilder;
 use reqwest::Url;
 
 fn main() -> Result<(), String> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+
     let mut username = String::new();
     let mut password = String::new();
 

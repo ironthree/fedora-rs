@@ -16,6 +16,8 @@ use url::Url;
 use crate::session::Session;
 use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
 
+use cookies::{CachingJar, CookieCacheError, CookieCacheState};
+
 /// This is the OpenID authentication endpoint for "production" instances of
 /// fedora services.
 pub const FEDORA_OPENID_API: &str = "https://id.fedoraproject.org/api/v1/";
@@ -240,149 +242,161 @@ impl<'a> OpenIDSessionBuilder<'a> {
         default_headers.append(ACCEPT, HeaderValue::from_str("application/json").unwrap());
 
         // try loading persistent cookie jar
-        let jar = Arc::new(match cookies::CachingJar::read_from_disk() {
-            Ok(jar) => jar,
+        let mut refresh_required = true;
+        let jar = match CachingJar::read_from_disk() {
+            Ok((jar, state)) => {
+                if let CookieCacheState::Fresh = state {
+                    refresh_required = false;
+                }
+                Arc::new(jar)
+            },
             Err(error) => {
                 // fall back to empty cookie jar if either
-                if let cookies::CookieCacheError::DoesNotExist = error {
+                if let CookieCacheError::DoesNotExist = error {
                     // on-disk cache does not exist yet
                     log::info!("Creating new cookie cache.");
                 } else {
                     // failed to deserialize on-disk cache
                     log::info!("Failed to load cached cookies: {}", error);
                 }
-                cookies::CachingJar::empty()
+                Arc::new(CachingJar::empty())
             },
-        });
+        };
 
-        // construct reqwest session for authentication with:
-        // - custom default headers
-        // - no-redirects policy
-        let client: Client = Client::builder()
-            .default_headers(default_headers.clone())
-            .cookie_store(true)
-            .cookie_provider(jar.clone())
-            .timeout(timeout)
-            .redirect(Policy::none())
-            .build()?;
+        let openid_params = if refresh_required {
+            // construct reqwest session for authentication with:
+            // - custom default headers
+            // - no-redirects policy
+            let client: Client = Client::builder()
+                .default_headers(default_headers.clone())
+                .cookie_store(true)
+                .cookie_provider(jar.clone())
+                .timeout(timeout)
+                .redirect(Policy::none())
+                .build()?;
 
-        // log in
-        let mut url = self.login_url;
-        let mut state: HashMap<String, String> = HashMap::new();
+            // log in
+            let mut url = self.login_url;
+            let mut state: HashMap<String, String> = HashMap::new();
 
-        // ask fedora OpenID system how to authenticate
-        // follow redirects until the login form is reached to collect all parameters
-        loop {
-            let response = client.get(url.clone()).send()?;
-            let status = response.status();
+            // ask fedora OpenID system how to authenticate
+            // follow redirects until the login form is reached to collect all parameters
+            loop {
+                let response = client.get(url.clone()).send()?;
+                let status = response.status();
+
+                #[cfg(feature = "debug")]
+                    {
+                        dbg!(&response);
+                    }
+
+                // get and keep track of URL query arguments
+                let args = url.query_pairs();
+
+                for (key, value) in args {
+                    state.insert(key.to_string(), value.to_string());
+                }
+
+                if status.is_redirection() {
+                    // set next URL to redirect destination
+                    let header: &HeaderValue = match response.headers().get("location") {
+                        Some(value) => value,
+                        None => {
+                            return Err(OpenIDClientError::RedirectionError {
+                                error: String::from("No redirect URL provided in HTTP redirect headers."),
+                            });
+                        },
+                    };
+
+                    let string = match header.to_str() {
+                        Ok(string) => string,
+                        Err(_) => {
+                            return Err(OpenIDClientError::RedirectionError {
+                                error: String::from("Failed to decode redirect URL."),
+                            });
+                        },
+                    };
+
+                    url = Url::parse(string)?;
+                } else {
+                    break;
+                }
+            }
+
+            // insert username and password into the state / query
+            state.insert("username".to_string(), self.username.to_string());
+            state.insert("password".to_string(), self.password.to_string());
+
+            // insert additional query arguments into the state / query
+            state.insert("auth_module".to_string(), "fedoauth.auth.fas.Auth_FAS".to_string());
+            state.insert("auth_flow".to_string(), "fedora".to_string());
+
+            #[allow(clippy::or_fun_call)]
+                state
+                .entry("openid.mode".to_string())
+                .or_insert("checkid_setup".to_string());
+
+            // send authentication request
+            let response = match client.post(self.auth_url).form(&state).send() {
+                Ok(response) => response,
+                Err(error) => {
+                    return Err(OpenIDClientError::AuthenticationError {
+                        error: error.to_string(),
+                    })
+                },
+            };
 
             #[cfg(feature = "debug")]
-            {
-                dbg!(&response);
-            }
+                {
+                    dbg!(&response);
+                }
 
-            // get and keep track of URL query arguments
-            let args = url.query_pairs();
+            // the only indication that authenticating failed is a non-JSON response, or invalid message
+            let string = response.text()?;
+            let openid_auth: OpenIDResponse = match serde_json::from_str(&string) {
+                Ok(value) => value,
+                Err(_) => {
+                    return Err(OpenIDClientError::LoginError);
+                },
+            };
 
-            for (key, value) in args {
-                state.insert(key.to_string(), value.to_string());
-            }
-
-            if status.is_redirection() {
-                // set next URL to redirect destination
-                let header: &HeaderValue = match response.headers().get("location") {
-                    Some(value) => value,
-                    None => {
-                        return Err(OpenIDClientError::RedirectionError {
-                            error: String::from("No redirect URL provided in HTTP redirect headers."),
-                        });
-                    },
-                };
-
-                let string = match header.to_str() {
-                    Ok(string) => string,
-                    Err(_) => {
-                        return Err(OpenIDClientError::RedirectionError {
-                            error: String::from("Failed to decode redirect URL."),
-                        });
-                    },
-                };
-
-                url = Url::parse(string)?;
-            } else {
-                break;
-            }
-        }
-
-        // insert username and password into the state / query
-        state.insert("username".to_string(), self.username.to_string());
-        state.insert("password".to_string(), self.password.to_string());
-
-        // insert additional query arguments into the state / query
-        state.insert("auth_module".to_string(), "fedoauth.auth.fas.Auth_FAS".to_string());
-        state.insert("auth_flow".to_string(), "fedora".to_string());
-
-        #[allow(clippy::or_fun_call)]
-        state
-            .entry("openid.mode".to_string())
-            .or_insert("checkid_setup".to_string());
-
-        // send authentication request
-        let response = match client.post(self.auth_url).form(&state).send() {
-            Ok(response) => response,
-            Err(error) => {
+            if !openid_auth.success {
                 return Err(OpenIDClientError::AuthenticationError {
-                    error: error.to_string(),
-                })
-            },
-        };
-
-        #[cfg(feature = "debug")]
-        {
-            dbg!(&response);
-        }
-
-        // the only indication that authenticating failed is a non-JSON response, or invalid message
-        let string = response.text()?;
-        let openid_auth: OpenIDResponse = match serde_json::from_str(&string) {
-            Ok(value) => value,
-            Err(_) => {
-                return Err(OpenIDClientError::LoginError);
-            },
-        };
-
-        if !openid_auth.success {
-            return Err(OpenIDClientError::AuthenticationError {
-                error: String::from("OpenID endpoint returned an error code."),
-            });
-        }
-
-        let return_url = Url::parse(&openid_auth.response.return_to)?;
-
-        let response = match client.post(return_url).form(&openid_auth.response).send() {
-            Ok(response) => response,
-            Err(error) => return Err(OpenIDClientError::RequestError { error }),
-        };
-
-        #[cfg(feature = "debug")]
-        {
-            dbg!(&response);
-        }
-
-        if !response.status().is_success() && !response.status().is_redirection() {
-            #[cfg(feature = "debug")]
-            {
-                println!("{}", &response.text()?);
+                    error: String::from("OpenID endpoint returned an error code."),
+                });
             }
 
-            return Err(OpenIDClientError::AuthenticationError {
-                error: String::from("Failed to complete authentication with the original site."),
-            });
-        };
+            let return_url = Url::parse(&openid_auth.response.return_to)?;
 
-        if let Err(error) = jar.write_to_disk() {
-            log::info!("Failed to write cached cookies: {}", error);
-        }
+            let response = match client.post(return_url).form(&openid_auth.response).send() {
+                Ok(response) => response,
+                Err(error) => return Err(OpenIDClientError::RequestError { error }),
+            };
+
+            #[cfg(feature = "debug")]
+                {
+                    dbg!(&response);
+                }
+
+            if !response.status().is_success() && !response.status().is_redirection() {
+                #[cfg(feature = "debug")]
+                    {
+                        println!("{}", &response.text()?);
+                    }
+
+                return Err(OpenIDClientError::AuthenticationError {
+                    error: String::from("Failed to complete authentication with the original site."),
+                });
+            };
+
+            if let Err(error) = jar.write_to_disk() {
+                log::info!("Failed to write cached cookies: {}", error);
+            }
+
+            Some(openid_auth.response)
+        } else {
+            None
+        };
 
         // construct new client with default redirect handling, but keep all cookies
         let client: Client = Client::builder()
@@ -394,7 +408,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
 
         Ok(OpenIDSession {
             client,
-            params: openid_auth.response,
+            params: openid_params,
         })
     }
 }
@@ -406,14 +420,14 @@ impl<'a> OpenIDSessionBuilder<'a> {
 #[derive(Debug)]
 pub struct OpenIDSession {
     client: Client,
-    params: OpenIDParameters,
+    params: Option<OpenIDParameters>,
 }
 
 impl OpenIDSession {
     /// This method returns a reference to the [`OpenIDParameters`](struct.OpenIDParameters.html)
     /// that were returned by the OpenID endpoint after successful authentication.
-    pub fn params(&self) -> &OpenIDParameters {
-        &self.params
+    pub fn params(&self) -> Option<&OpenIDParameters> {
+        self.params.as_ref()
     }
 }
 

@@ -35,6 +35,11 @@ fn get_cookie_cache_path() -> Result<PathBuf, CookieCacheError> {
     Ok(home.join(".fedora/fedora-rs-cookie-jar.json"))
 }
 
+pub(crate) enum CookieCacheState {
+    Fresh,
+    Expired,
+}
+
 // based on reqwest::cookie::Cookie::parse
 fn parse_cookie(value: &HeaderValue) -> Result<cookie::Cookie, cookie::ParseError> {
     std::str::from_utf8(value.as_bytes())
@@ -55,7 +60,7 @@ impl CachingJar {
         }
     }
 
-    pub fn read_from_disk() -> Result<CachingJar, CookieCacheError> {
+    pub fn read_from_disk() -> Result<(CachingJar, CookieCacheState), CookieCacheError> {
         let path = get_cookie_cache_path()?;
 
         let contents = match read_to_string(path) {
@@ -71,8 +76,12 @@ impl CachingJar {
 
         let store: cookie_store::CookieStore = serde_json::from_str(&contents)?;
 
-        Ok(CachingJar {
-            store: RwLock::new(store),
+        Ok(if store.iter_any().any(|cookie| cookie.is_expired()) {
+            log::info!("Session cookie(s) have expired, re-authentication necessary.");
+            (CachingJar { store: RwLock::new(store) }, CookieCacheState::Expired)
+        } else {
+            log::debug!("Session cookie(s) are fresh, no re-authentication necessary.");
+            (CachingJar { store: RwLock::new(store) }, CookieCacheState::Fresh)
         })
     }
 
