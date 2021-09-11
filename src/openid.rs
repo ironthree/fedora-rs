@@ -286,9 +286,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
                 let status = response.status();
 
                 #[cfg(feature = "debug")]
-                    {
-                        dbg!(&response);
-                    }
+                dbg!(&response);
 
                 // get and keep track of URL query arguments
                 let args = url.query_pairs();
@@ -332,7 +330,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
             state.insert("auth_flow".to_string(), "fedora".to_string());
 
             #[allow(clippy::or_fun_call)]
-                state
+            state
                 .entry("openid.mode".to_string())
                 .or_insert("checkid_setup".to_string());
 
@@ -347,9 +345,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
             };
 
             #[cfg(feature = "debug")]
-                {
-                    dbg!(&response);
-                }
+            dbg!(&response);
 
             // the only indication that authenticating failed is a non-JSON response, or invalid message
             let string = response.text()?;
@@ -374,15 +370,11 @@ impl<'a> OpenIDSessionBuilder<'a> {
             };
 
             #[cfg(feature = "debug")]
-                {
-                    dbg!(&response);
-                }
+            dbg!(&response);
 
             if !response.status().is_success() && !response.status().is_redirection() {
                 #[cfg(feature = "debug")]
-                    {
-                        println!("{}", &response.text()?);
-                    }
+                println!("{}", &response.text()?);
 
                 return Err(OpenIDClientError::AuthenticationError {
                     error: String::from("Failed to complete authentication with the original site."),
@@ -390,7 +382,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
             };
 
             if let Err(error) = jar.write_to_disk() {
-                log::info!("Failed to write cached cookies: {}", error);
+                log::error!("Failed to write cached cookies: {}", error);
             }
 
             Some(openid_auth.response)
@@ -426,6 +418,8 @@ pub struct OpenIDSession {
 impl OpenIDSession {
     /// This method returns a reference to the [`OpenIDParameters`](struct.OpenIDParameters.html)
     /// that were returned by the OpenID endpoint after successful authentication.
+    /// If no authentication was performed, because cached session cookies were not expired yet,
+    /// then this method will return `None`.
     pub fn params(&self) -> Option<&OpenIDParameters> {
         self.params.as_ref()
     }

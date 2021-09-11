@@ -8,12 +8,17 @@ use reqwest::cookie::CookieStore;
 use reqwest::header::HeaderValue;
 use reqwest::Url;
 
+/// This error describes the types of error that can occur when loading cached session cookies from
+/// disk.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CookieCacheError {
+    /// No on-disk cookie cache exists at the existed path yet.
     #[error("No existing cookie cache found.")]
     DoesNotExist,
+    /// An error occurred while attempting to read on-disk cookie cache.
     #[error("Failed to read cookie cache from disk.")]
     FileSystemError,
+    /// An error occurred while (de)serializing the cookie cache to / from JSON.
     #[error("Failed to (de)serialize cookie cache: {error}")]
     SerializationError { error: serde_json::Error },
 }
@@ -30,36 +35,47 @@ impl From<std::io::Error> for CookieCacheError {
     }
 }
 
+/// This helper function constructs the path to the default location for the on-disk cookie cache.
 fn get_cookie_cache_path() -> Result<PathBuf, CookieCacheError> {
     let home = dirs::home_dir().ok_or(CookieCacheError::FileSystemError)?;
     Ok(home.join(".fedora/fedora-rs-cookie-jar.json"))
 }
 
+/// This enum describes the state of the cookie cache - fresh or expired.
 pub(crate) enum CookieCacheState {
+    /// none of the loaded cookies were expired
     Fresh,
+    /// at least one of the loaded cookies was expired
     Expired,
 }
 
-// based on reqwest::cookie::Cookie::parse
+/// This function is used to parse [`HeaderValue`s](reqwest::header::HeaderValue) into cookies. It
+/// is based on the private `parse` method implementation from [`reqwest::cookie::Cookie`].
 fn parse_cookie(value: &HeaderValue) -> Result<cookie::Cookie, cookie::ParseError> {
     std::str::from_utf8(value.as_bytes())
         .map_err(cookie::ParseError::from)
         .and_then(cookie::Cookie::parse)
 }
 
-// based on reqwest::cookie::Jar
+/// A simple implementation of the [`CookieStore`](reqwest::cookie::CookieStore) trait, based on the
+/// default implementation in [reqwest::cookie::Jar], but with additional methods for using a
+/// simple on-disk cookie cache for persistent cookies.
 #[derive(Debug)]
 pub(crate) struct CachingJar {
     store: RwLock<cookie_store::CookieStore>,
 }
 
 impl CachingJar {
+    /// Creates an empty cookie jar.
     pub fn empty() -> CachingJar {
         CachingJar {
             store: RwLock::new(cookie_store::CookieStore::default()),
         }
     }
 
+    /// Attempt to read cached persistent cookies from the on-disk cookie cache. If successful, the
+    /// return value is a tuple consisting of a new [CachingJar] instance, and a [CookieCacheState]
+    /// value indicating whether any of the cached cookies are expired or not.
     pub fn read_from_disk() -> Result<(CachingJar, CookieCacheState), CookieCacheError> {
         let path = get_cookie_cache_path()?;
 
@@ -78,13 +94,24 @@ impl CachingJar {
 
         Ok(if store.iter_any().any(|cookie| cookie.is_expired()) {
             log::info!("Session cookie(s) have expired, re-authentication necessary.");
-            (CachingJar { store: RwLock::new(store) }, CookieCacheState::Expired)
+            (
+                CachingJar {
+                    store: RwLock::new(store),
+                },
+                CookieCacheState::Expired,
+            )
         } else {
             log::debug!("Session cookie(s) are fresh, no re-authentication necessary.");
-            (CachingJar { store: RwLock::new(store) }, CookieCacheState::Fresh)
+            (
+                CachingJar {
+                    store: RwLock::new(store),
+                },
+                CookieCacheState::Fresh,
+            )
         })
     }
 
+    /// Attempt to write persistent cookies to the on-disk cookie cache.
     pub fn write_to_disk(&self) -> Result<(), CookieCacheError> {
         let path = get_cookie_cache_path()?;
         let contents = serde_json::to_string_pretty(&self.store)?;
