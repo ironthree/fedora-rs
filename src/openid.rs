@@ -266,6 +266,11 @@ impl<'a> OpenIDSessionBuilder<'a> {
         };
 
         if let Some(jar) = jar {
+            // write non-expired cookies back to disk
+            if let Err(error) = jar.write_to_disk() {
+                log::error!("Failed to write cached cookies: {}", error);
+            }
+
             // construct new client with default redirect handling, but keep all cookies
             let client: Client = Client::builder()
                 .default_headers(default_headers)
@@ -274,7 +279,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
                 .timeout(timeout)
                 .build()?;
 
-            return Ok(OpenIDSession { client, params: None });
+            Ok(OpenIDSession { client, params: None })
         } else {
             let jar = Arc::new(CachingJar::empty());
 
@@ -395,6 +400,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
                 });
             };
 
+            // write freshly baked cookies back to disk
             if let Err(error) = jar.write_to_disk() {
                 log::error!("Failed to write cached cookies: {}", error);
             }

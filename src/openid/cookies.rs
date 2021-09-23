@@ -7,7 +7,6 @@ use bytes::Bytes;
 use reqwest::cookie::CookieStore;
 use reqwest::header::HeaderValue;
 use reqwest::Url;
-use serde::{Deserialize, Serialize};
 
 /// This error describes the types of error that can occur when loading cached session cookies from
 /// disk.
@@ -55,22 +54,6 @@ fn parse_cookie(value: &HeaderValue) -> Result<cookie::Cookie, cookie::ParseErro
         .and_then(cookie::Cookie::parse)
 }
 
-/// This struct provides a wrapper around [`CookieStore`s](cookie_store::CookieStore) that also
-/// remembers how many cookies it contains. This makes it possible to check if there were expired
-/// cookies when loading the cookie jar (deserializing [`CookieStore`](cookie_store::CookieStore)
-/// silently drops all expired cookies internally, which is really annoying).
-#[derive(Debug, Deserialize)]
-struct OwnedOnDiskStore {
-    items: usize,
-    store: cookie_store::CookieStore,
-}
-
-#[derive(Debug, Serialize)]
-struct BorrowedOnDiskStore<'a> {
-    items: usize,
-    store: &'a cookie_store::CookieStore,
-}
-
 /// A simple implementation of the [`CookieStore`](reqwest::cookie::CookieStore) trait, based on
 /// the default implementation in [reqwest::cookie::Jar], but with additional methods for using a
 /// simple on-disk cookie cache for persistent cookies.
@@ -96,7 +79,7 @@ impl CachingJar {
 
     /// Attempt to read cached persistent cookies from the on-disk cookie cache. If successful, the
     /// return value is a tuple consisting of a new [CachingJar] instance, and a [CookieCacheState]
-    /// value indicating whether any of the cached cookies are expired or not.
+    /// value indicating whether any of the cached cookies were expired or not.
     pub fn read_from_disk() -> Result<(CachingJar, CookieCacheState), CookieCacheError> {
         let path = get_cookie_cache_path()?;
 
@@ -111,19 +94,18 @@ impl CachingJar {
             },
         }?;
 
-        // CookieStore deserialization skips expired cookies internally
-        let wrapper: OwnedOnDiskStore = serde_json::from_str(&contents)?;
+        // deserialization implementation for CookieStore skips expired cookies internally
+        let store: cookie_store::CookieStore = serde_json::from_str(&contents)?;
 
-        // so it's necessary to keep a manual count of cookies
-        let expected = wrapper.items;
-        let received = wrapper.store.iter_any().count();
-
-        if expected != received {
+        // The cookie containing the actual authentication token is the one with the longest
+        // expiration date, so even if *some* cookies are expired, reauthentication is only
+        // required if *all* cookies are expired.
+        if store.iter_unexpired().count() == 0 {
             log::info!("Session cookie(s) have expired, re-authentication necessary.");
-            Ok((CachingJar::new(wrapper.store), CookieCacheState::Expired))
+            Ok((CachingJar::new(store), CookieCacheState::Expired))
         } else {
             log::debug!("Session cookie(s) are fresh, no re-authentication necessary.");
-            Ok((CachingJar::new(wrapper.store), CookieCacheState::Fresh))
+            Ok((CachingJar::new(store), CookieCacheState::Fresh))
         }
     }
 
@@ -132,13 +114,9 @@ impl CachingJar {
         let path = get_cookie_cache_path()?;
 
         let store = &*self.store.read().expect("Poisoned lock!");
-        let items = store.iter_any().count();
-
-        let wrapper = BorrowedOnDiskStore { items, store };
-        let contents = serde_json::to_string_pretty(&wrapper)?;
+        let contents = serde_json::to_string_pretty(store)?;
 
         std::fs::write(path, contents)?;
-
         Ok(())
     }
 }
