@@ -20,13 +20,10 @@ pub(crate) enum CookieCacheError {
     FileSystemError,
     /// An error occurred while (de)serializing the cookie cache to / from JSON.
     #[error("Failed to (de)serialize cookie cache: {error}")]
-    SerializationError { error: serde_json::Error },
-}
-
-impl From<serde_json::Error> for CookieCacheError {
-    fn from(error: serde_json::Error) -> Self {
-        Self::SerializationError { error }
-    }
+    SerializationError {
+        #[from]
+        error: serde_json::Error,
+    },
 }
 
 impl From<std::io::Error> for CookieCacheError {
