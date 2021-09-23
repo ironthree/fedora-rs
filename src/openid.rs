@@ -242,13 +242,15 @@ impl<'a> OpenIDSessionBuilder<'a> {
         default_headers.append(ACCEPT, HeaderValue::from_str("application/json").unwrap());
 
         // try loading persistent cookie jar
-        let mut refresh_required = true;
-        let jar = match CachingJar::read_from_disk() {
+        let jar: Option<CachingJar> = match CachingJar::read_from_disk() {
             Ok((jar, state)) => {
                 if let CookieCacheState::Fresh = state {
-                    refresh_required = false;
+                    // on-disk cache is fresh
+                    Some(jar)
+                } else {
+                    // on-disk cache was expired
+                    None
                 }
-                Arc::new(jar)
             },
             Err(error) => {
                 // fall back to empty cookie jar if either
@@ -259,11 +261,23 @@ impl<'a> OpenIDSessionBuilder<'a> {
                     // failed to deserialize on-disk cache
                     log::info!("Failed to load cached cookies: {}", error);
                 }
-                Arc::new(CachingJar::empty())
+                None
             },
         };
 
-        let openid_params = if refresh_required {
+        if let Some(jar) = jar {
+            // construct new client with default redirect handling, but keep all cookies
+            let client: Client = Client::builder()
+                .default_headers(default_headers)
+                .cookie_store(true)
+                .cookie_provider(Arc::new(jar))
+                .timeout(timeout)
+                .build()?;
+
+            return Ok(OpenIDSession { client, params: None });
+        } else {
+            let jar = Arc::new(CachingJar::empty());
+
             // construct reqwest session for authentication with:
             // - custom default headers
             // - no-redirects policy
@@ -385,23 +399,19 @@ impl<'a> OpenIDSessionBuilder<'a> {
                 log::error!("Failed to write cached cookies: {}", error);
             }
 
-            Some(openid_auth.response)
-        } else {
-            None
-        };
+            // construct new client with default redirect handling, but keep all cookies
+            let client: Client = Client::builder()
+                .default_headers(default_headers)
+                .cookie_store(true)
+                .cookie_provider(jar)
+                .timeout(timeout)
+                .build()?;
 
-        // construct new client with default redirect handling, but keep all cookies
-        let client: Client = Client::builder()
-            .default_headers(default_headers)
-            .cookie_store(true)
-            .cookie_provider(jar)
-            .timeout(timeout)
-            .build()?;
-
-        Ok(OpenIDSession {
-            client,
-            params: openid_params,
-        })
+            Ok(OpenIDSession {
+                client,
+                params: Some(openid_auth.response),
+            })
+        }
     }
 }
 
