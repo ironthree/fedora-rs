@@ -1,3 +1,10 @@
+# Release 1.1.0 "Cookie Monster" (September 23, 2021)
+
+This version introduces a simple on-disk cookie cache (like python-fedora) to
+reduce the number of necessary re-authentications via OpenID, which should
+speed up usage of authenticated web interfaces (like bodhi) so long as the
+cookie cache is fresh.
+
 # Release 1.0.0 "Up This Grade" (Jan. 05, 2021)
 
 Changes:
