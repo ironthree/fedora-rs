@@ -63,7 +63,7 @@ pub(crate) struct CachingJar {
 }
 
 impl CachingJar {
-    /// Creates a cookie jar from a given [`CookieStores](cookie_store::CookieStore).
+    /// Creates a cookie jar from a given [`CookieStores`](cookie_store::CookieStore).
     pub fn new(store: cookie_store::CookieStore) -> CachingJar {
         CachingJar {
             store: RwLock::new(store),
@@ -124,7 +124,10 @@ impl CachingJar {
 impl CookieStore for CachingJar {
     fn set_cookies(&self, cookie_headers: &mut dyn Iterator<Item = &HeaderValue>, url: &Url) {
         let iter = cookie_headers.filter_map(|val| parse_cookie(val).map(|cookie| cookie.into_owned()).ok());
-        self.store.write().unwrap().store_response_cookies(iter, url);
+        self.store
+            .write()
+            .expect("Poisoned lock, something has gone wrong.")
+            .store_response_cookies(iter, url);
     }
 
     fn cookies(&self, url: &Url) -> Option<HeaderValue> {

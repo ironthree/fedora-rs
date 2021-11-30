@@ -1,12 +1,24 @@
-//! This module contains the common interface definition for all session types.
-//!
-//! Currently, only a session with OpenID authentication and an anonymous session are implemented.
+use reqwest::Client;
+use url::Url;
 
-use reqwest::blocking::Client;
+use crate::anonymous::AnonymousSessionBuilder;
+use crate::openid::{OpenIDSessionBuilder, OpenIDSessionKind};
 
-/// This trait is used to mark both `AnonymousSession` and `OpenIDSession`, so they can be used
-/// interchangeably or dynamically.
-pub trait Session {
-    /// This method returs a reference to the wrapped [`reqwest`](https://docs.rs/reqwest) client.
-    fn session(&self) -> &Client;
+#[derive(Debug)]
+pub struct Session {
+    pub(crate) client: Client,
+}
+
+impl Session {
+    pub fn session(&self) -> &Client {
+        &self.client
+    }
+
+    pub fn anonymous<'a>() -> AnonymousSessionBuilder<'a> {
+        AnonymousSessionBuilder::new()
+    }
+
+    pub fn openid_auth<'a>(login_url: Url, kind: OpenIDSessionKind) -> OpenIDSessionBuilder<'a> {
+        OpenIDSessionBuilder::new(login_url, kind)
+    }
 }

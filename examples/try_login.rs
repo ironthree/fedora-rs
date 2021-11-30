@@ -1,37 +1,39 @@
 use std::io::{stdin, stdout, Write};
 
-use fedora::OpenIDSessionBuilder;
+use fedora::{OpenIDSessionKind, Session};
 use reqwest::Url;
 
-fn main() -> Result<(), String> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-
+fn prompt_username() -> String {
     let mut username = String::new();
-    let mut password = String::new();
 
     print!("FAS username: ");
     stdout().flush().unwrap();
-    if let Err(error) = stdin().read_line(&mut username) {
-        return Err(error.to_string());
-    }
-    let username = username.trim().to_string();
+    stdin().read_line(&mut username).unwrap();
 
-    print!("FAS password: ");
-    stdout().flush().unwrap();
-    if let Err(error) = stdin().read_line(&mut password) {
-        return Err(error.to_string());
-    }
-    let password = password.trim().to_string();
+    username.trim().to_string()
+}
+
+fn prompt_password() -> String {
+    rpassword::prompt_password_stdout("FAS password: ").unwrap()
+}
+
+#[tokio::main]
+async fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+
+    // read username and password from stdin
+    let username = prompt_username();
+    let password = prompt_password();
 
     let login_url = Url::parse("https://bodhi.fedoraproject.org/login").unwrap();
 
-    let session = OpenIDSessionBuilder::default(login_url, &username, &password).build();
+    let login = Session::authenticated(login_url, OpenIDSessionKind::Default).build();
+    let session = login.login(&username, &password).await;
 
     match session {
         Ok(_session) => {
             println!("Successfully logged in.");
-            Ok(())
         },
-        Err(error) => Err(format!("{}", error)),
+        Err(error) => Err(format!("{}", error)).unwrap(),
     }
 }

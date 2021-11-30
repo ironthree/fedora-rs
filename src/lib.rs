@@ -3,19 +3,19 @@
 //!
 //! Currently, an implementation for OpenID authentication and an anonymous session are available.
 
-#![warn(missing_docs)]
+//#![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
+#![warn(clippy::unwrap_used)]
 
 use std::time::Duration;
 
 const FEDORA_USER_AGENT: &str = "fedora-rs";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
-pub mod session;
+mod session;
 pub use session::Session;
 
-pub mod anonymous;
-pub use anonymous::{AnonymousSession, AnonymousSessionBuilder};
+mod anonymous;
 
-pub mod openid;
-pub use openid::{OpenIDSession, OpenIDSessionBuilder};
+mod openid;
+pub use openid::{OpenIDClientError, OpenIDSessionKind};
