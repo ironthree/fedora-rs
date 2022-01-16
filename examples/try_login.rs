@@ -27,7 +27,7 @@ async fn main() {
 
     let login_url = Url::parse("https://bodhi.fedoraproject.org/login").unwrap();
 
-    let login = Session::authenticated(login_url, OpenIDSessionKind::Default).build();
+    let login = Session::openid_auth(login_url, OpenIDSessionKind::Default).build();
     let session = login.login(&username, &password).await;
 
     match session {

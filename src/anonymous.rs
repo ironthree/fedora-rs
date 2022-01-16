@@ -1,4 +1,4 @@
-//! This module contains an anonymous [`Session`](Session) implementation.
+//! This module contains an implementation for building anonymous [`Session`]s.
 
 use std::time::Duration;
 
@@ -9,13 +9,18 @@ use reqwest::Client;
 use crate::session::Session;
 use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
 
+/// This type encapsulates the (optional) arguments that are required for building an anonymous
+/// session.
 #[derive(Debug, Default)]
 pub struct AnonymousSessionBuilder<'a> {
+    /// optional override of the default timeout duration
     timeout: Option<Duration>,
+    /// optional override of the default User-Agent header
     user_agent: Option<&'a str>,
 }
 
 impl<'a> AnonymousSessionBuilder<'a> {
+    /// This method constructs a new [`AnonymousSessionBuilder`] instance.
     pub fn new() -> Self {
         AnonymousSessionBuilder {
             timeout: None,
@@ -23,16 +28,22 @@ impl<'a> AnonymousSessionBuilder<'a> {
         }
     }
 
+    /// Override the default request timeout duration.
+    #[must_use]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
+    /// Override the default User-Agent header.
+    #[must_use]
     pub fn user_agent(mut self, user_agent: &'a str) -> Self {
         self.user_agent = Some(user_agent);
         self
     }
 
+    /// This method consumes the [`AnonymousSessionBuilder`] and returns a [`Session`] with
+    /// custom timeout and User-Agent header settings.
     pub fn build(self) -> Session {
         let timeout = match self.timeout {
             Some(timeout) => timeout,

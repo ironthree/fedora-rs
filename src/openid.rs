@@ -1,9 +1,13 @@
+//! This module contains an implementation of a session that is pre-authenticated with an OpenID
+//! provider.
+
 mod cookies;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use cookies::{CachingJar, CookieCacheError, CookieCacheState};
 use log::warn;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
 use reqwest::redirect::Policy;
@@ -14,22 +18,17 @@ use url::Url;
 use crate::session::Session;
 use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
 
-use cookies::{CachingJar, CookieCacheError, CookieCacheState};
-
-/// This is the OpenID authentication endpoint for "production" instances of
-/// fedora services.
+/// This is the OpenID authentication endpoint for "production" instances of fedora services.
 pub const FEDORA_OPENID_API: &str = "https://id.fedoraproject.org/api/v1/";
 
-/// This is the OpenID authentication endpoint for "staging" instances of
-/// fedora services.
+/// This is the OpenID authentication endpoint for "staging" instances of fedora services.
 pub const FEDORA_OPENID_STG_API: &str = "https://id.stg.fedoraproject.org/api/v1/";
 
-/// This collection of errors is returned for various failure modes when setting
-/// up a session authenticated via OpenID.
+/// This collection of errors is returned for various failure modes when setting up a session
+/// authenticated via OpenID.
 #[derive(Debug, thiserror::Error)]
 pub enum OpenIDClientError {
-    /// This error represents a network-related issue that occurred within
-    /// [`reqwest`](https://docs.rs/reqwest).
+    /// This error represents a network-related issue that occurred within [`reqwest`].
     #[error("Failed to contact OpenID provider: {error}")]
     Request {
         /// The inner error contains the error passed from [`reqwest`](https://docs.rs/reqwest).
@@ -55,8 +54,8 @@ pub enum OpenIDClientError {
         /// The inner error contains an explanation why the authentication request failed.
         error: String,
     },
-    /// This error is returned when the JSON response from the OpenID endpoint
-    /// was not in the standard format, or was missing expected values.
+    /// This error is returned when the JSON response from the OpenID endpoint was not in the
+    /// standard format, or was missing expected values.
     #[error("Failed to deserialize JSON returned by OpenID endpoint: {error}")]
     Deserialization {
         /// The inner error contains the deserialization error message from
@@ -64,18 +63,21 @@ pub enum OpenIDClientError {
         #[from]
         error: serde_json::error::Error,
     },
-    /// This error is returned when an error occurs during authentication,
-    /// primarily due to wrong combinations of username and password.
+    /// This error is returned when an error occurs during authentication, primarily due to wrong
+    /// combinations of username and password.
     #[error("Authentication failed, possibly due to wrong username / password.")]
     Login,
 }
 
+/// This type represents the JSON repsonse format of OpenID providers.
 #[derive(Debug, Deserialize)]
 struct OpenIDResponse {
     success: bool,
     response: OpenIDParameters,
 }
 
+/// This type represents the OpenID parameters that are returned by an OpenID provider after
+/// successful authentication.
 #[derive(Debug, Deserialize, Serialize)]
 struct OpenIDParameters {
     #[serde(rename = "openid.assoc_handle")]
@@ -120,6 +122,8 @@ struct OpenIDParameters {
     extra: HashMap<String, serde_json::Value>,
 }
 
+/// This type encapsulates the mandatory and optional arguments that are required for building a
+/// session that is authenticated via OpenID.
 #[derive(Debug)]
 pub struct OpenIDSessionBuilder<'a> {
     login_url: Url,
@@ -128,14 +132,22 @@ pub struct OpenIDSessionBuilder<'a> {
     user_agent: Option<&'a str>,
 }
 
+/// This enum represents the different kinds of OpenID providers that can be interacted with.
 #[derive(Debug)]
 pub enum OpenIDSessionKind {
+    /// the default Fedora OpenID provider
     Default,
+    /// the Fedora OpenID provider staging instance
     Staging,
-    Custom { auth_url: Url },
+    /// a non-standard OpenID provider with a custom URL
+    Custom {
+        /// URL of the OpenID provider
+        auth_url: Url,
+    },
 }
 
 impl<'a> OpenIDSessionBuilder<'a> {
+    /// Construct a new [`OpenIDSessionBuilder`] instance with given login and authentication URLs.
     pub fn new(login_url: Url, kind: OpenIDSessionKind) -> Self {
         use OpenIDSessionKind::*;
 
@@ -145,7 +157,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
                 Url::parse(FEDORA_OPENID_STG_API).expect("Failed to parse a hardcoded URL, this should not happen.")
             },
             Custom { auth_url } => {
-                warn!("Using nonstandard OpenID provider URL: {}", auth_url);
+                warn!("Authenticating with nonstandard OpenID provider URL: {}", auth_url);
                 auth_url
             },
         };
@@ -158,16 +170,22 @@ impl<'a> OpenIDSessionBuilder<'a> {
         }
     }
 
+    /// Override the default request timeout duration.
+    #[must_use]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
+    /// Override the default User-Agent header.
+    #[must_use]
     pub fn user_agent(mut self, user_agent: &'a str) -> Self {
         self.user_agent = Some(user_agent);
         self
     }
 
+    /// This method consumes the [`OpenIDSessionBuilder`] and returns an [`OpenIDSessionLogin`] that
+    /// can subsequently be used for logging in by just supplying a username and password.
     pub fn build(self) -> OpenIDSessionLogin {
         let timeout = match self.timeout {
             Some(timeout) => timeout,
@@ -228,6 +246,8 @@ impl<'a> OpenIDSessionBuilder<'a> {
     }
 }
 
+/// This type represents an OpenID login handler that encapsulates all parameters for authenticating
+/// except username and password.
 #[derive(Debug)]
 pub struct OpenIDSessionLogin {
     login_url: Url,
@@ -238,6 +258,8 @@ pub struct OpenIDSessionLogin {
 }
 
 impl OpenIDSessionLogin {
+    /// This method Attempts to authenticate with the specified OpenID provider, and return a
+    /// pre-authenticated session on success.
     pub async fn login(self, username: &str, password: &str) -> Result<Session, OpenIDClientError> {
         if let Some(jar) = self.jar {
             // write non-expired cookies back to disk

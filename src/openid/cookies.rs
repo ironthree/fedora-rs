@@ -1,3 +1,6 @@
+//! This module contains a simple cookie jar implementation based on the implementation from
+//! [`reqwest::cookie::Jar`], extended with functions to persist it as a file on disk.
+
 use std::convert::From;
 use std::fs::read_to_string;
 use std::path::PathBuf;
@@ -40,14 +43,14 @@ fn get_cookie_cache_path() -> Result<PathBuf, CookieCacheError> {
 
 /// This enum describes the state of the cookie cache - fresh or expired.
 pub(crate) enum CookieCacheState {
-    /// none of the loaded cookies were expired
+    /// at least one of the loaded cookies was not expired
     Fresh,
-    /// at least one of the loaded cookies was expired
+    /// all of the loaded cookies were expired
     Expired,
 }
 
-/// This function is used to parse [`HeaderValue`s](reqwest::header::HeaderValue) into cookies. It
-/// is based on the private `parse` method implementation from [`reqwest::cookie::Cookie`].
+/// This function is used to parse [`HeaderValue`]s into cookies. It is based on the private
+/// `parse` method from [`reqwest::cookie::Cookie`].
 fn parse_cookie(value: &HeaderValue) -> Result<cookie::Cookie, cookie::ParseError> {
     std::str::from_utf8(value.as_bytes())
         .map_err(cookie::ParseError::from)
@@ -55,7 +58,7 @@ fn parse_cookie(value: &HeaderValue) -> Result<cookie::Cookie, cookie::ParseErro
 }
 
 /// A simple implementation of the [`CookieStore`](reqwest::cookie::CookieStore) trait, based on
-/// the default implementation in [reqwest::cookie::Jar], but with additional methods for using a
+/// the default implementation in [`reqwest::cookie::Jar`], but with additional methods for using a
 /// simple on-disk cookie cache for persistent cookies.
 #[derive(Debug)]
 pub(crate) struct CachingJar {
@@ -63,7 +66,7 @@ pub(crate) struct CachingJar {
 }
 
 impl CachingJar {
-    /// Creates a cookie jar from a given [`CookieStores`](cookie_store::CookieStore).
+    /// Creates a cookie jar from a given [`CookieStore`].
     pub fn new(store: cookie_store::CookieStore) -> CachingJar {
         CachingJar {
             store: RwLock::new(store),
@@ -78,8 +81,8 @@ impl CachingJar {
     }
 
     /// Attempt to read cached persistent cookies from the on-disk cookie cache. If successful, the
-    /// return value is a tuple consisting of a new [CachingJar] instance, and a [CookieCacheState]
-    /// value indicating whether any of the cached cookies were expired or not.
+    /// return value is a tuple consisting of a new [`CachingJar`] instance, and a
+    /// [`CookieCacheState`] value indicating whether any of the cached cookies were expired or not.
     pub fn read_from_disk() -> Result<(CachingJar, CookieCacheState), CookieCacheError> {
         let path = get_cookie_cache_path()?;
 
