@@ -15,7 +15,6 @@ repository = "https://github.com/ironthree/fedora-rs"
 
 [features]
 default = []
-debug = []
 
 [dependencies]
 bytes = "1.0"
