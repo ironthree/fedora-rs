@@ -22,9 +22,3 @@ It is intended to provide functionality similar to the [`fedora`][fedora.py] Pyt
 - authenticating with OpenID Connect
 - authenticating for FAS2, wiki
 
-
-## Development
-
-If you're interested in using this crate, you can enable "debug mode" by enabling the `debug` feature.
-This will enable various debug output throughout the crate (primarily HTTP response codes and cookies).
-

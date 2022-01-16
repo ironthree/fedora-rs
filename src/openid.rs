@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use log::warn;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
 use reqwest::redirect::Policy;
 use reqwest::Client;
@@ -143,7 +144,10 @@ impl<'a> OpenIDSessionBuilder<'a> {
             Staging => {
                 Url::parse(FEDORA_OPENID_STG_API).expect("Failed to parse a hardcoded URL, this should not happen.")
             },
-            Custom { auth_url } => auth_url,
+            Custom { auth_url } => {
+                warn!("Using nonstandard OpenID provider URL: {}", auth_url);
+                auth_url
+            },
         };
 
         OpenIDSessionBuilder {
@@ -268,7 +272,6 @@ impl OpenIDSessionLogin {
             .expect("Failed to initialize the network stack.");
 
         // start log in process
-        // TODO: verify URL, cross-reference with python-fedora
         let mut url = self.login_url;
         let mut state: HashMap<String, String> = HashMap::new();
 
@@ -277,9 +280,6 @@ impl OpenIDSessionLogin {
         loop {
             let response = client.get(url.clone()).send().await?;
             let status = response.status();
-
-            #[cfg(feature = "debug")]
-            dbg!(&response);
 
             // get and keep track of URL query arguments
             let args = url.query_pairs();
@@ -328,7 +328,6 @@ impl OpenIDSessionLogin {
             .or_insert("checkid_setup".to_string());
 
         // send authentication request
-        // TODO: verify URL, cross-reference with python-fedora
         let response = match client.post(self.auth_url).form(&state).send().await {
             Ok(response) => response,
             Err(error) => {
@@ -337,9 +336,6 @@ impl OpenIDSessionLogin {
                 })
             },
         };
-
-        #[cfg(feature = "debug")]
-        dbg!(&response);
 
         // the only indication that authenticating failed is a non-JSON response, or invalid message
         let string = response.text().await?;
@@ -363,13 +359,7 @@ impl OpenIDSessionLogin {
             Err(error) => return Err(OpenIDClientError::Request { error }),
         };
 
-        #[cfg(feature = "debug")]
-        dbg!(&response);
-
         if !response.status().is_success() && !response.status().is_redirection() {
-            #[cfg(feature = "debug")]
-            println!("{}", &response.text().await?);
-
             return Err(OpenIDClientError::Authentication {
                 error: String::from("Failed to complete authentication with the original site."),
             });
@@ -377,7 +367,7 @@ impl OpenIDSessionLogin {
 
         // write freshly baked cookies back to disk
         if let Err(error) = jar.write_to_disk() {
-            log::error!("Failed to write cached cookies: {}", error);
+            log::error!("Failed to write cookie jar to disk: {}", error);
         }
 
         // construct new client with default redirect handling, but keep all cookies
