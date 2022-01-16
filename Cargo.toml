@@ -4,7 +4,7 @@ description = "base library for interacting with fedora services"
 license = "MIT OR Apache-2.0"
 
 version = "2.0.0-dev"
-edition = "2018"
+edition = "2021"
 
 authors = ["Fabio Valentini <decathorpe@gmail.com>"]
 readme = "README.md"
