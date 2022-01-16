@@ -9,7 +9,7 @@
 
 use std::time::Duration;
 
-const FEDORA_USER_AGENT: &str = "fedora-rs";
+const FEDORA_USER_AGENT: &str = concat!("fedora-rs v", env!("CARGO_PKG_VERSION"));
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 mod session;
