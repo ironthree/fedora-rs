@@ -129,7 +129,7 @@ impl CookieStore for CachingJar {
         let iter = cookie_headers.filter_map(|val| parse_cookie(val).map(|cookie| cookie.into_owned()).ok());
         self.store
             .write()
-            .expect("Poisoned lock, something has gone wrong.")
+            .expect("Poisoned RwLock! Something has gone wrong.")
             .store_response_cookies(iter, url);
     }
 
@@ -137,9 +137,9 @@ impl CookieStore for CachingJar {
         let s = self
             .store
             .read()
-            .expect("Poisoned lock!")
-            .get_request_cookies(url)
-            .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
+            .expect("Poisoned RwLock! Something has gone wrong.")
+            .get_request_values(url)
+            .map(|(name, value)| format!("{}={}", name, value))
             .collect::<Vec<_>>()
             .join("; ");
 
