@@ -101,7 +101,7 @@ impl CachingJar {
         let store: cookie_store::CookieStore = serde_json::from_str(&contents)?;
 
         // The cookie containing the actual authentication token is the one with the longest
-        // expiration date, so even if *some* cookies are expired, reauthentication is only
+        // expiration date, so even if *some* cookies are expired, re-authentication is only
         // required if *all* cookies are expired.
         if store.iter_unexpired().count() == 0 {
             log::info!("Session cookie(s) have expired, re-authentication necessary.");

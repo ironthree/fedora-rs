@@ -69,7 +69,7 @@ pub enum OpenIDClientError {
     Login,
 }
 
-/// This type represents the JSON repsonse format of OpenID providers.
+/// This type represents the JSON response format of OpenID providers.
 #[derive(Debug, Deserialize)]
 struct OpenIDResponse {
     success: bool,
