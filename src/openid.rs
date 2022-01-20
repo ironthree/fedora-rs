@@ -260,6 +260,19 @@ pub struct OpenIDSessionLogin {
 impl OpenIDSessionLogin {
     /// This method Attempts to authenticate with the specified OpenID provider, and return a
     /// pre-authenticated session on success.
+    ///
+    /// ```ignore
+    /// use fedora::Session;
+    /// use fedora::{OpenIDSessionKind, OpenIDSessionLogin};
+    /// use url::Url;
+    ///
+    /// let login: OpenIDSessionLogin = Session::openid_auth(
+    ///     Url::parse("https://bodhi.fedoraproject.org/login").unwrap(),
+    ///     OpenIDSessionKind::Default
+    /// ).build();
+    ///
+    /// let auth_session = login.login("janedoe", "CorrectHorseBatteryStaple").await.unwrap();
+    /// ```
     pub async fn login(self, username: &str, password: &str) -> Result<Session, OpenIDClientError> {
         if let Some(jar) = self.jar {
             // write non-expired cookies back to disk
