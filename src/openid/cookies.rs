@@ -82,7 +82,7 @@ impl CachingJar {
 
     /// Attempt to read cached persistent cookies from the on-disk cookie cache. If successful, the
     /// return value is a tuple consisting of a new [`CachingJar`] instance, and a
-    /// [`CookieCacheState`] value indicating whether any of the cached cookies were expired or not.
+    /// [`CookieCacheState`] value indicating whether the cached cookies were expired or not.
     pub fn read_from_disk() -> Result<(CachingJar, CookieCacheState), CookieCacheError> {
         let path = get_cookie_cache_path()?;
 
