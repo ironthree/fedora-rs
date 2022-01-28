@@ -10,8 +10,8 @@ This crate provides a base for interacting with Fedora web services.
 It is intended to provide functionality similar to the [`fedora`][fedora.py]
 Python package, but for Rust.
 
-Refer to on [docs.rs] for a complete description of the functionality of this
-crate.
+Refer to the docs on [docs.rs] for a complete description of the functionality
+of this crate.
 
 [docs.rs]: https://docs.rs/fedora
 [fedora.py]: https://github.com/fedora-infra/python-fedora

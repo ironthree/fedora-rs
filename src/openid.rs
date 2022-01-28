@@ -152,10 +152,8 @@ impl<'a> OpenIDSessionBuilder<'a> {
         use OpenIDSessionKind::*;
 
         let auth_url = match kind {
-            Default => Url::parse(FEDORA_OPENID_API).expect("Failed to parse a hardcoded URL, this should not happen."),
-            Staging => {
-                Url::parse(FEDORA_OPENID_STG_API).expect("Failed to parse a hardcoded URL, this should not happen.")
-            },
+            Default => Url::parse(FEDORA_OPENID_API).expect("Failed to parse a hardcoded URL."),
+            Staging => Url::parse(FEDORA_OPENID_STG_API).expect("Failed to parse a hardcoded URL."),
             Custom { auth_url } => {
                 warn!("Authenticating with nonstandard OpenID provider URL: {}", auth_url);
                 auth_url
@@ -204,12 +202,11 @@ impl<'a> OpenIDSessionBuilder<'a> {
 
         default_headers.append(
             USER_AGENT,
-            HeaderValue::from_str(user_agent).expect("Failed to parse hardcoded HTTP headers, this should not happen."),
+            HeaderValue::from_str(user_agent).expect("Failed to parse hardcoded HTTP headers."),
         );
         default_headers.append(
             ACCEPT,
-            HeaderValue::from_str("application/json")
-                .expect("Failed to parse hardcoded HTTP headers, this should not happen."),
+            HeaderValue::from_str("application/json").expect("Failed to parse hardcoded HTTP headers."),
         );
 
         // try loading persistent cookie jar
@@ -363,23 +360,15 @@ impl OpenIDSessionLogin {
             .or_insert("checkid_setup".to_string());
 
         // send authentication request
-        let response = match client.post(self.auth_url).form(&state).send().await {
-            Ok(response) => response,
-            Err(error) => {
-                return Err(OpenIDClientError::Authentication {
-                    error: error.to_string(),
-                })
-            },
-        };
+        let response = client.post(self.auth_url).form(&state).send().await.map_err(|error| {
+            OpenIDClientError::Authentication {
+                error: error.to_string(),
+            }
+        })?;
 
         // the only indication that authenticating failed is a non-JSON response, or invalid message
         let string = response.text().await?;
-        let openid_auth: OpenIDResponse = match serde_json::from_str(&string) {
-            Ok(value) => value,
-            Err(_) => {
-                return Err(OpenIDClientError::Login);
-            },
-        };
+        let openid_auth: OpenIDResponse = serde_json::from_str(&string).map_err(|_| OpenIDClientError::Login)?;
 
         if !openid_auth.success {
             return Err(OpenIDClientError::Authentication {
@@ -389,10 +378,12 @@ impl OpenIDSessionLogin {
 
         let return_url = Url::parse(&openid_auth.response.return_to)?;
 
-        let response = match client.post(return_url).form(&openid_auth.response).send().await {
-            Ok(response) => response,
-            Err(error) => return Err(OpenIDClientError::Request { error }),
-        };
+        let response = client
+            .post(return_url)
+            .form(&openid_auth.response)
+            .send()
+            .await
+            .map_err(|error| OpenIDClientError::Request { error })?;
 
         if !response.status().is_success() && !response.status().is_redirection() {
             return Err(OpenIDClientError::Authentication {

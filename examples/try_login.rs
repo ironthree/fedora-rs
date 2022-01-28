@@ -18,7 +18,7 @@ fn prompt_password() -> String {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), String> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
 
     // read username and password from stdin
@@ -33,7 +33,8 @@ async fn main() {
     match session {
         Ok(_session) => {
             println!("Successfully logged in.");
+            Ok(())
         },
-        Err(error) => Err(format!("{}", error)).unwrap(),
+        Err(error) => Err(error.to_string()),
     }
 }

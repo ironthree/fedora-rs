@@ -44,6 +44,8 @@ impl<'a> AnonymousSessionBuilder<'a> {
 
     /// This method consumes the [`AnonymousSessionBuilder`] and returns a [`Session`] with
     /// custom timeout and User-Agent header settings.
+    ///
+    /// Note: This method will panic if the network stack cannot be initialized.
     pub fn build(self) -> Session {
         let timeout = match self.timeout {
             Some(timeout) => timeout,
@@ -62,12 +64,11 @@ impl<'a> AnonymousSessionBuilder<'a> {
 
         headers.insert(
             USER_AGENT,
-            HeaderValue::from_str(user_agent).expect("Failed to parse hardcoded HTTP headers, this should not happen."),
+            HeaderValue::from_str(user_agent).expect("Failed to parse hardcoded HTTP headers."),
         );
         headers.insert(
             ACCEPT,
-            HeaderValue::from_str("application/json")
-                .expect("Failed to parse hardcoded HTTP headers, this should not happen."),
+            HeaderValue::from_str("application/json").expect("Failed to parse hardcoded HTTP headers."),
         );
 
         // construct reqwest session with:
