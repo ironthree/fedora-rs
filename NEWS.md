@@ -1,3 +1,8 @@
+### Release 2.0.0-beta.2 "Spring Cleaning" (January 28, 2022)
+
+This beta release only includes some code cleanups and small improvements for
+error messages and documentation.
+
 ### Release 2.0.0-beta.1 "Modern Times" (January 20, 2022)
 
 This version is an almost-complete rewrite of the entire crate, with
