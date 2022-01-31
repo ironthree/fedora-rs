@@ -1,10 +1,11 @@
 [package]
 name = "fedora"
-description = "base library for interacting with fedora services"
+description = "Base library for interacting with Fedora web services"
 license = "MIT OR Apache-2.0"
 
 version = "2.0.0-beta.2"
 edition = "2021"
+rust-version = "1.56.0"
 
 authors = ["Fabio Valentini <decathorpe@gmail.com>"]
 readme = "README.md"
@@ -17,16 +18,16 @@ repository = "https://github.com/ironthree/fedora-rs"
 default = []
 
 [dependencies]
-bytes = "1.0"
-cookie = "0.15"
-cookie_store = "0.15"
-dirs = "^3.0.1"
-log = "0.4.13"
-reqwest = { version = "^0.11", features = ["cookies"] }
-serde = { version = "^1.0.104", features = ["derive"] }
-serde_json = "^1.0.44"
-thiserror = "^1.0"
-url = "^2.1.0"
+bytes = "1.1"
+cookie = "0.15.1"
+cookie_store = "0.15.1"
+dirs = "3.0.2"
+log = "0.4.14"
+reqwest = { version = "0.11.6", features = ["cookies"] }
+serde = { version = "1.0.134", features = ["derive"] }
+serde_json = "1.0.78"
+thiserror = "1.0.30"
+url = "^2.2.2"
 
 [dev-dependencies]
 # only needed for example code
