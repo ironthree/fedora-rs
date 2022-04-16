@@ -268,9 +268,9 @@ impl OpenIDSessionLogin {
     ///     OpenIDSessionKind::Default
     /// ).build();
     ///
-    /// let auth_session = login.login("janedoe", "CorrectHorseBatteryStaple").await.unwrap();
+    /// let auth_session = login.login("janedoe", "CorrectHorseBatteryStaple", None).await.unwrap();
     /// ```
-    pub async fn login(self, username: &str, password: &str) -> Result<Session, OpenIDClientError> {
+    pub async fn login(self, username: &str, password: &str, otp: Option<&str>) -> Result<Session, OpenIDClientError> {
         if let Some(jar) = self.jar {
             // write non-expired cookies back to disk
             if let Err(error) = jar.write_to_disk() {
@@ -349,6 +349,7 @@ impl OpenIDSessionLogin {
         // insert username and password into the state / query
         state.insert("username".to_string(), username.to_string());
         state.insert("password".to_string(), password.to_string());
+        state.insert("otp".to_string(), otp.unwrap_or("").to_string());
 
         // insert additional query arguments into the state / query
         state.insert("auth_module".to_string(), "fedoauth.auth.fas.Auth_FAS".to_string());

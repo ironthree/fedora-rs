@@ -100,6 +100,12 @@ impl CachingJar {
         // deserialization implementation for CookieStore skips expired cookies internally
         let store: cookie_store::CookieStore = serde_json::from_str(&contents)?;
 
+        // FIXME: Cookies for different domains (i.e. prod and stg) can be stored in the cache.
+        //        If there the cookies for the current domain are expired but there are
+        //        unexpired cookies for a different domain, the logic below is broken, and will
+        //        claim that the cookie cache is "fresh" even though the cookies for the current
+        //        domain have expired.
+
         // The cookie containing the actual authentication token is the one with the longest
         // expiration date, so even if *some* cookies are expired, re-authentication is only
         // required if *all* cookies are expired.
