@@ -41,14 +41,6 @@ fn get_cookie_cache_path() -> Result<PathBuf, CookieCacheError> {
     Ok(home.join(".fedora/fedora-rs-cookie-jar.json"))
 }
 
-/// This enum describes the state of the cookie cache - fresh or expired.
-pub(crate) enum CookieCacheState {
-    /// at least one of the loaded cookies was not expired
-    Fresh,
-    /// all of the loaded cookies were expired
-    Expired,
-}
-
 /// This function is used to parse [`HeaderValue`]s into cookies. It is based on the private
 /// `parse` method from [`reqwest::cookie::Cookie`].
 fn parse_cookie(value: &HeaderValue) -> Result<cookie::Cookie, cookie::ParseError> {
@@ -62,7 +54,7 @@ fn parse_cookie(value: &HeaderValue) -> Result<cookie::Cookie, cookie::ParseErro
 /// simple on-disk cookie cache for persistent cookies.
 #[derive(Debug)]
 pub(crate) struct CachingJar {
-    store: RwLock<cookie_store::CookieStore>,
+    pub(crate) store: RwLock<cookie_store::CookieStore>,
 }
 
 impl CachingJar {
@@ -83,7 +75,7 @@ impl CachingJar {
     /// Attempt to read cached persistent cookies from the on-disk cookie cache. If successful, the
     /// return value is a tuple consisting of a new [`CachingJar`] instance, and a
     /// [`CookieCacheState`] value indicating whether the cached cookies were expired or not.
-    pub fn read_from_disk() -> Result<(CachingJar, CookieCacheState), CookieCacheError> {
+    pub fn read_from_disk() -> Result<CachingJar, CookieCacheError> {
         let path = get_cookie_cache_path()?;
 
         let contents = match read_to_string(path) {
@@ -100,22 +92,7 @@ impl CachingJar {
         // deserialization implementation for CookieStore skips expired cookies internally
         let store: cookie_store::CookieStore = serde_json::from_str(&contents)?;
 
-        // FIXME: Cookies for different domains (i.e. prod and stg) can be stored in the cache.
-        //        If there the cookies for the current domain are expired but there are
-        //        unexpired cookies for a different domain, the logic below is broken, and will
-        //        claim that the cookie cache is "fresh" even though the cookies for the current
-        //        domain have expired.
-
-        // The cookie containing the actual authentication token is the one with the longest
-        // expiration date, so even if *some* cookies are expired, re-authentication is only
-        // required if *all* cookies are expired.
-        if store.iter_unexpired().count() == 0 {
-            log::info!("Session cookie(s) have expired, re-authentication necessary.");
-            Ok((CachingJar::new(store), CookieCacheState::Expired))
-        } else {
-            log::debug!("Session cookie(s) are fresh, no re-authentication necessary.");
-            Ok((CachingJar::new(store), CookieCacheState::Fresh))
-        }
+        Ok(CachingJar::new(store))
     }
 
     /// Attempt to write persistent cookies to the on-disk cookie cache.
@@ -130,6 +107,7 @@ impl CachingJar {
     }
 }
 
+// implementation based on reqwest::cookie::Jar
 impl CookieStore for CachingJar {
     fn set_cookies(&self, cookie_headers: &mut dyn Iterator<Item = &HeaderValue>, url: &Url) {
         let iter = cookie_headers.filter_map(|val| parse_cookie(val).map(|cookie| cookie.into_owned()).ok());

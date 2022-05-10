@@ -7,8 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use cookies::{CachingJar, CookieCacheError, CookieCacheState};
-use log::warn;
+use cookies::{CachingJar, CookieCacheError};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
 use reqwest::redirect::Policy;
 use reqwest::Client;
@@ -42,12 +41,9 @@ pub enum OpenIDClientError {
         #[from]
         error: url::ParseError,
     },
-    /// This error is returned if a HTTP redirect was invalid.
-    #[error("{error}")]
-    Redirection {
-        /// The inner error contains more details (failed to decode URL / missing URL from headers).
-        error: String,
-    },
+    /// This error is returned if an HTTP redirect response was invalid (missing or invalid URL).
+    #[error("Invalid HTTP redirect (invalid or missing URL)")]
+    Redirection,
     /// This error is returned for authentication-related issues.
     #[error("Failed to authenticate with OpenID service: {error}")]
     Authentication {
@@ -155,7 +151,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
             Default => Url::parse(FEDORA_OPENID_API).expect("Failed to parse a hardcoded URL."),
             Staging => Url::parse(FEDORA_OPENID_STG_API).expect("Failed to parse a hardcoded URL."),
             Custom { auth_url } => {
-                warn!("Authenticating with nonstandard OpenID provider URL: {}", auth_url);
+                log::warn!("Authenticating with nonstandard OpenID provider URL: {}", auth_url);
                 auth_url
             },
         };
@@ -204,21 +200,26 @@ impl<'a> OpenIDSessionBuilder<'a> {
             USER_AGENT,
             HeaderValue::from_str(user_agent).expect("Failed to parse hardcoded HTTP headers."),
         );
-        default_headers.append(
-            ACCEPT,
-            HeaderValue::from_str("application/json").expect("Failed to parse hardcoded HTTP headers."),
-        );
+        default_headers.append(ACCEPT, HeaderValue::from_static("application/json"));
 
         // try loading persistent cookie jar
-        let jar: Option<CachingJar> = match CachingJar::read_from_disk() {
-            Ok((jar, state)) => {
-                if let CookieCacheState::Fresh = state {
-                    // on-disk cache is fresh
-                    Some(jar)
+        let (jar, fresh): (CachingJar, bool) = match CachingJar::read_from_disk() {
+            Ok(jar) => {
+                let fresh = jar
+                    .store
+                    .read()
+                    .expect("Poisoned lock!")
+                    // check if any unexpired cookie matches the login URL
+                    .iter_unexpired()
+                    .any(|cookie| cookie.domain.matches(&self.login_url));
+
+                if fresh {
+                    log::debug!("Session cookie(s) are fresh, no re-authentication necessary.");
                 } else {
-                    // on-disk cache was expired
-                    None
+                    log::info!("Session cookie(s) have expired, re-authentication necessary.");
                 }
+
+                (jar, fresh)
             },
             Err(error) => {
                 // fall back to empty cookie jar if either
@@ -229,7 +230,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
                     // failed to deserialize on-disk cache
                     log::info!("Failed to load cached cookies: {}", error);
                 }
-                None
+                (CachingJar::empty(), false)
             },
         };
 
@@ -239,6 +240,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
             headers: default_headers,
             timeout,
             jar,
+            re_login: !fresh,
         }
     }
 }
@@ -251,7 +253,8 @@ pub struct OpenIDSessionLogin {
     auth_url: Url,
     headers: HeaderMap,
     timeout: Duration,
-    jar: Option<CachingJar>,
+    jar: CachingJar,
+    re_login: bool,
 }
 
 impl OpenIDSessionLogin {
@@ -271,7 +274,9 @@ impl OpenIDSessionLogin {
     /// let auth_session = login.login("janedoe", "CorrectHorseBatteryStaple", None).await.unwrap();
     /// ```
     pub async fn login(self, username: &str, password: &str, otp: Option<&str>) -> Result<Session, OpenIDClientError> {
-        if let Some(jar) = self.jar {
+        let jar = Arc::new(self.jar);
+
+        if !self.re_login {
             // write non-expired cookies back to disk
             if let Err(error) = jar.write_to_disk() {
                 log::error!("Failed to write cached cookies: {}", error);
@@ -281,15 +286,13 @@ impl OpenIDSessionLogin {
             let client: Client = Client::builder()
                 .default_headers(self.headers)
                 .cookie_store(true)
-                .cookie_provider(Arc::new(jar))
+                .cookie_provider(jar)
                 .timeout(self.timeout)
                 .build()
                 .expect("Failed to initialize the network stack.");
 
             return Ok(Session { client });
         }
-
-        let jar = Arc::new(CachingJar::empty());
 
         // construct reqwest session for authentication with:
         // - custom default headers
@@ -307,16 +310,17 @@ impl OpenIDSessionLogin {
         let mut url = self.login_url;
         let mut state: HashMap<String, String> = HashMap::new();
 
-        // ask fedora OpenID system how to authenticate
-        // follow redirects until the login form is reached to collect all parameters
+        // ask fedora OpenID system how to authenticate:
+        // - follow redirects until the login form is reached
+        // - collect authentication request parameters along the way
         loop {
             let response = client.get(url.clone()).send().await?;
             let status = response.status();
 
             // get and keep track of URL query arguments
-            let args = url.query_pairs();
-
-            for (key, value) in args {
+            for (key, value) in url.query_pairs() {
+                // key/value-pairs must be converted to owned strings, because the
+                // URL they are borrowed from is dropped after every loop iteration
                 state.insert(key.to_string(), value.to_string());
             }
 
@@ -324,20 +328,12 @@ impl OpenIDSessionLogin {
                 // set next URL to redirect destination
                 let header: &HeaderValue = match response.headers().get("location") {
                     Some(value) => value,
-                    None => {
-                        return Err(OpenIDClientError::Redirection {
-                            error: String::from("No redirect URL provided in HTTP redirect headers."),
-                        });
-                    },
+                    None => return Err(OpenIDClientError::Redirection),
                 };
 
                 let string = match header.to_str() {
                     Ok(string) => string,
-                    Err(_) => {
-                        return Err(OpenIDClientError::Redirection {
-                            error: String::from("Failed to decode redirect URL."),
-                        });
-                    },
+                    Err(_) => return Err(OpenIDClientError::Redirection),
                 };
 
                 url = Url::parse(string)?;
@@ -347,18 +343,17 @@ impl OpenIDSessionLogin {
         }
 
         // insert username and password into the state / query
-        state.insert("username".to_string(), username.to_string());
-        state.insert("password".to_string(), password.to_string());
-        state.insert("otp".to_string(), otp.unwrap_or("").to_string());
+        state.insert(String::from("username"), String::from(username));
+        state.insert(String::from("password"), String::from(password));
+        state.insert(String::from("otp"), String::from(otp.unwrap_or("")));
 
         // insert additional query arguments into the state / query
-        state.insert("auth_module".to_string(), "fedoauth.auth.fas.Auth_FAS".to_string());
-        state.insert("auth_flow".to_string(), "fedora".to_string());
+        state.insert(String::from("auth_module"), String::from("fedoauth.auth.fas.Auth_FAS"));
+        state.insert(String::from("auth_flow"), String::from("fedora"));
 
-        #[allow(clippy::or_fun_call)]
         state
-            .entry("openid.mode".to_string())
-            .or_insert("checkid_setup".to_string());
+            .entry(String::from("openid.mode"))
+            .or_insert_with(|| String::from("checkid_setup"));
 
         // send authentication request
         let response = client.post(self.auth_url).form(&state).send().await.map_err(|error| {

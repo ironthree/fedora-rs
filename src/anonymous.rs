@@ -66,10 +66,7 @@ impl<'a> AnonymousSessionBuilder<'a> {
             USER_AGENT,
             HeaderValue::from_str(user_agent).expect("Failed to parse hardcoded HTTP headers."),
         );
-        headers.insert(
-            ACCEPT,
-            HeaderValue::from_str("application/json").expect("Failed to parse hardcoded HTTP headers."),
-        );
+        headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
 
         // construct reqwest session with:
         // - custom default headers

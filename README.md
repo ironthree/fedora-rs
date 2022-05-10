@@ -1,4 +1,4 @@
-# base library for interacting with fedora services
+# base library for interacting with Fedora services
 
 [![crates.io](https://img.shields.io/crates/v/fedora.svg)](https://crates.io/crates/fedora/)
 [![crates.io](https://img.shields.io/crates/d/fedora.svg)](https://crates.io/crates/fedora/)
@@ -18,7 +18,7 @@ of this crate.
 
 ## DONE
 
-- OpenID authentication (for example, for bodhi)
+- OpenID authentication
 
 ## TODO
 

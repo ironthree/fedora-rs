@@ -1,5 +1,5 @@
-//! This crate contains code that helps serve as the basis for interacting with fedora (web)
-//! services and implementing other features on top of it.
+//! This crate contains code that helps serve as the basis for interacting with Fedora (web)
+//! services and implementing other features or API bindings on top of it.
 //!
 //! Currently, an implementation for OpenID authentication against one of the Fedora Project
 //! OpenID providers and a generic, anonymous, unauthenticated session are available.
