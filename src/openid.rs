@@ -1,8 +1,7 @@
 //! This module contains an implementation of a session that is pre-authenticated with an OpenID
 //! provider.
 
-mod cookies;
-
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,6 +15,8 @@ use url::Url;
 
 use crate::session::Session;
 use crate::{DEFAULT_TIMEOUT, FEDORA_USER_AGENT};
+
+mod cookies;
 
 /// This is the OpenID authentication endpoint for "production" instances of fedora services.
 pub const FEDORA_OPENID_API: &str = "https://id.fedoraproject.org/api/v1/";
@@ -311,7 +312,7 @@ impl OpenIDSessionLogin {
 
         // start log in process
         let mut url = self.login_url;
-        let mut state: HashMap<String, String> = HashMap::new();
+        let mut state: HashMap<Cow<str>, Cow<str>> = HashMap::new();
 
         // ask fedora OpenID system how to authenticate:
         // - follow redirects until the login form is reached
@@ -324,7 +325,7 @@ impl OpenIDSessionLogin {
             for (key, value) in url.query_pairs() {
                 // key/value-pairs must be converted to owned strings, because the
                 // URL they are borrowed from is dropped after every loop iteration
-                state.insert(key.to_string(), value.to_string());
+                state.insert(Cow::Owned(key.to_string()), Cow::Owned(value.to_string()));
             }
 
             if status.is_redirection() {
@@ -354,16 +355,19 @@ impl OpenIDSessionLogin {
         }
 
         // insert username and password into the state / query
-        state.insert(String::from("username"), String::from(username));
-        state.insert(String::from("password"), String::from(password));
+        state.insert(Cow::Borrowed("username"), Cow::Borrowed(username));
+        state.insert(Cow::Borrowed("password"), Cow::Borrowed(password));
 
         // insert additional query arguments into the state / query
-        state.insert(String::from("auth_module"), String::from("fedoauth.auth.fas.Auth_FAS"));
-        state.insert(String::from("auth_flow"), String::from("fedora"));
+        state.insert(
+            Cow::Borrowed("auth_module"),
+            Cow::Borrowed("fedoauth.auth.fas.Auth_FAS"),
+        );
+        state.insert(Cow::Borrowed("auth_flow"), Cow::Borrowed("fedora"));
 
         state
-            .entry(String::from("openid.mode"))
-            .or_insert_with(|| String::from("checkid_setup"));
+            .entry(Cow::Borrowed("openid.mode"))
+            .or_insert_with(|| Cow::Borrowed("checkid_setup"));
 
         // send authentication request
         let response = client.post(self.auth_url).form(&state).send().await.map_err(|error| {
