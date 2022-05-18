@@ -1,3 +1,9 @@
+### Release 2.0.1 "Optimize" (May 18, 2022)
+
+This release contains small fixes and optimizations for the OpenID session and
+improves the heuristics that are used to determine whether cached session
+cookies were still fresh.
+
 ### Release 2.0.0 "Finally" (February 01, 2022)
 
 This release contains no code changes compared to the previous beta. The only
