@@ -41,9 +41,12 @@ pub enum OpenIDClientError {
         #[from]
         error: url::ParseError,
     },
-    /// This error is returned if an HTTP redirect response was invalid (missing or invalid URL).
-    #[error("Invalid HTTP redirect (invalid or missing URL)")]
-    Redirection,
+    /// This error is returned if a HTTP redirect was invalid.
+    #[error("{error}")]
+    Redirection {
+        /// The inner error contains more details (failed to decode URL / missing URL from headers).
+        error: String,
+    },
     /// This error is returned for authentication-related issues.
     #[error("Failed to authenticate with OpenID service: {error}")]
     Authentication {
@@ -240,7 +243,7 @@ impl<'a> OpenIDSessionBuilder<'a> {
             headers: default_headers,
             timeout,
             jar,
-            re_login: !fresh,
+            fresh,
         }
     }
 }
@@ -254,7 +257,7 @@ pub struct OpenIDSessionLogin {
     headers: HeaderMap,
     timeout: Duration,
     jar: CachingJar,
-    re_login: bool,
+    fresh: bool,
 }
 
 impl OpenIDSessionLogin {
@@ -271,12 +274,12 @@ impl OpenIDSessionLogin {
     ///     OpenIDSessionKind::Default
     /// ).build();
     ///
-    /// let auth_session = login.login("janedoe", "CorrectHorseBatteryStaple", None).await.unwrap();
+    /// let auth_session = login.login("janedoe", "CorrectHorseBatteryStaple").await.unwrap();
     /// ```
-    pub async fn login(self, username: &str, password: &str, otp: Option<&str>) -> Result<Session, OpenIDClientError> {
+    pub async fn login(self, username: &str, password: &str) -> Result<Session, OpenIDClientError> {
         let jar = Arc::new(self.jar);
 
-        if !self.re_login {
+        if self.fresh {
             // write non-expired cookies back to disk
             if let Err(error) = jar.write_to_disk() {
                 log::error!("Failed to write cached cookies: {}", error);
@@ -328,12 +331,20 @@ impl OpenIDSessionLogin {
                 // set next URL to redirect destination
                 let header: &HeaderValue = match response.headers().get("location") {
                     Some(value) => value,
-                    None => return Err(OpenIDClientError::Redirection),
+                    None => {
+                        return Err(OpenIDClientError::Redirection {
+                            error: String::from("No redirect URL provided in HTTP redirect headers."),
+                        });
+                    },
                 };
 
                 let string = match header.to_str() {
                     Ok(string) => string,
-                    Err(_) => return Err(OpenIDClientError::Redirection),
+                    Err(_) => {
+                        return Err(OpenIDClientError::Redirection {
+                            error: String::from("Failed to decode redirect URL."),
+                        });
+                    },
                 };
 
                 url = Url::parse(string)?;
@@ -345,7 +356,6 @@ impl OpenIDSessionLogin {
         // insert username and password into the state / query
         state.insert(String::from("username"), String::from(username));
         state.insert(String::from("password"), String::from(password));
-        state.insert(String::from("otp"), String::from(otp.unwrap_or("")));
 
         // insert additional query arguments into the state / query
         state.insert(String::from("auth_module"), String::from("fedoauth.auth.fas.Auth_FAS"));

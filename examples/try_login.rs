@@ -17,16 +17,6 @@ fn prompt_password() -> String {
     rpassword::prompt_password_stdout("FAS password: ").unwrap()
 }
 
-fn prompt_otp() -> String {
-    let mut otp = String::new();
-
-    print!("One-Time Password (if any): ");
-    stdout().flush().unwrap();
-    stdin().read_line(&mut otp).unwrap();
-
-    otp.trim().to_string()
-}
-
 #[tokio::main]
 async fn main() -> Result<(), String> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
@@ -34,12 +24,11 @@ async fn main() -> Result<(), String> {
     // read username and password from stdin
     let username = prompt_username();
     let password = prompt_password();
-    let otp = prompt_otp();
 
     let login_url = Url::parse("https://bodhi.stg.fedoraproject.org/login?method=openid").unwrap();
 
     let login = Session::openid_auth(login_url, OpenIDSessionKind::Staging).build();
-    let session = login.login(&username, &password, Some(&otp)).await;
+    let session = login.login(&username, &password).await;
 
     match session {
         Ok(_session) => {
