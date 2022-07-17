@@ -1,3 +1,15 @@
+### Release 2.0.2 "Bump" (July 17, 2022)
+
+This release only bumps versions of some dependencies:
+
+- bump `cookie` from 0.15 to 0.16
+- bump `cookie_store` from 0.15 to 0.16
+- bump `reqwest` from 0.11.6 to 0.11.11
+
+The major bumps in `cookie` and `cookie_crate` are not exposed to users of this
+crate, and while `reqwest` *is* part of this crate's public API, it's a bump
+to a compatible version.
+
 ### Release 2.0.1 "Optimize" (May 18, 2022)
 
 This release contains small fixes and optimizations for the OpenID session and
