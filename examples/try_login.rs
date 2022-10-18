@@ -14,7 +14,7 @@ fn prompt_username() -> String {
 }
 
 fn prompt_password() -> String {
-    rpassword::prompt_password_stdout("FAS password: ").unwrap()
+    rpassword::prompt_password("FAS password: ").unwrap()
 }
 
 #[tokio::main]

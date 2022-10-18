@@ -32,6 +32,6 @@ url = "^2.2.2"
 [dev-dependencies]
 # only needed for example code
 env_logger = "0.9"
-rpassword = "5"
+rpassword = "7"
 tokio = { version = "1.14.0", features = ["macros", "rt-multi-thread"] }
 
