@@ -2,7 +2,7 @@
 //! [`reqwest::cookie::Jar`], extended with functions to persist it as a file on disk.
 
 use std::convert::From;
-use std::fs::read_to_string;
+use std::fs::{create_dir, read_to_string};
 use std::path::PathBuf;
 use std::sync::RwLock;
 
@@ -33,6 +33,11 @@ impl From<std::io::Error> for CookieCacheError {
     fn from(_: std::io::Error) -> Self {
         Self::FileSystemError
     }
+}
+
+fn get_cookie_cache_dir() -> Result<PathBuf, CookieCacheError> {
+    let home = dirs::home_dir().ok_or(CookieCacheError::FileSystemError)?;
+    Ok(home.join(".fedora"))
 }
 
 /// This helper function constructs the path to the default location for the on-disk cookie cache.
@@ -96,12 +101,17 @@ impl CachingJar {
 
     /// Attempt to write persistent cookies to the on-disk cookie cache.
     pub fn write_to_disk(&self) -> Result<(), CookieCacheError> {
-        let path = get_cookie_cache_path()?;
+        let cache_dir = get_cookie_cache_dir()?;
+        let cache_path = get_cookie_cache_path()?;
+
+        if !cache_dir.exists() {
+            create_dir(cache_dir)?;
+        }
 
         let store = &*self.store.read().expect("Poisoned lock!");
         let contents = serde_json::to_string_pretty(store)?;
 
-        std::fs::write(path, contents)?;
+        std::fs::write(cache_path, contents)?;
         Ok(())
     }
 }
