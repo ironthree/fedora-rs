@@ -21,7 +21,7 @@ default = []
 bytes = "1.1"
 cookie = "0.16"
 cookie_store = "0.16"
-dirs = "4"
+dirs = "5"
 log = "0.4.14"
 reqwest = { version = "0.11.11", features = ["cookies"] }
 serde = { version = "1.0.134", features = ["derive"] }
