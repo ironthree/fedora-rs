@@ -1,3 +1,7 @@
+### Release 2.1.1 "Docs" (November 06, 2023)
+
+This release fixes building docs and doctests (a regression in 2.1.0).
+
 ### Release 2.1.0 "Dirs" (November 06, 2023)
 
 This release contains a fix for a small bug in the cookie cache implementation,
