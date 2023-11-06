@@ -1,3 +1,15 @@
+### Release 2.1.0 "Dirs" (November 06, 2023)
+
+This release contains a fix for a small bug in the cookie cache implementation,
+and updates some dependencies:
+
+- The directory containing the cookie cache for OpenID authentication is crated
+  ahead of time if it does not already exist. Fixes issues with storing and
+  loading cookies for the first time.
+- Update the dirs crate to version 5.
+- Update the env_logger crate to version 0.10.
+- Bump MSRV to 1.67.0 (due to transitive dependencies).
+
 ### Release 2.0.2 "Bump" (July 17, 2022)
 
 This release only bumps versions of some dependencies:
