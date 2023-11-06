@@ -29,7 +29,7 @@ pub use reqwest;
 pub use url;
 
 /// release notes for all versions of this crate
-#[doc = include_str!("../NEWS.md")]
+#[doc = include_str!("../CHANGELOG.md")]
 #[cfg(doc)]
 #[allow(unused_imports)]
 pub mod changelog {
