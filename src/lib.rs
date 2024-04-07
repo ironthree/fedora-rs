@@ -8,6 +8,13 @@
 #![warn(missing_debug_implementations)]
 #![warn(clippy::unwrap_used)]
 
+#![deprecated(
+    note = "The \"fedora\" crate is obsolete.
+    The OpenID-based authentication method for Fedora web services provided by this crate no longer works.
+    There is currently no known replacement.",
+    since = "2.1.2",
+)]
+
 use std::time::Duration;
 
 /// default value of the User-Agent HTTP header: `fedora-rs v$CARGO_PKG_VERSION`
