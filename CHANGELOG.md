@@ -1,3 +1,10 @@
+### Release 2.1.2 "End of the line" (April 07, 2024)
+
+This release marks the crate as obsolete and deprecated.
+
+The only supported authentication method (OpenID) is no longer used or working
+for any Fedora Project web service.
+
 ### Release 2.1.1 "Docs" (November 06, 2023)
 
 This release fixes building docs and doctests (a regression in 2.1.0).
